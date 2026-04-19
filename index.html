@@ -1,0 +1,2051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Project Manager</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    min-height: 100vh;
+  }
+  header {
+    background: #fff;
+    border-bottom: 1px solid #e5e5ea;
+    padding: 12px 20px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 18px; font-weight: 600; }
+  .month-tabs {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid #e5e5ea;
+  }
+  .month-tab {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #6e6e73;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .month-tab:hover { color: #1d1d1f; }
+  .month-tab.active { color: #1d1d1f; border-bottom-color: #1d1d1f; background: #e4e4e9; }
+  .view-switcher {
+    display: flex;
+    background: #f0f0f3;
+    border-radius: 8px;
+    padding: 3px;
+  }
+  .view-btn {
+    padding: 6px 14px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1d1d1f;
+  }
+  .view-btn.active { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .btn {
+    padding: 7px 14px;
+    background: #007aff;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .btn:hover { background: #0062cc; }
+  .btn-sec {
+    background: #f0f0f3;
+    color: #1d1d1f;
+  }
+  .btn-sec:hover { background: #e4e4e9; }
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .nav-row .period-label {
+    font-size: 14px;
+    font-weight: 600;
+    min-width: 220px;
+  }
+  .nav-arrow {
+    background: transparent;
+    border: 1px solid #d2d2d7;
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .nav-arrow:hover { background: #f0f0f3; }
+  main { padding: 20px; }
+
+  /* Week grid */
+  .week-grid {
+    background: #fff;
+    border-radius: 12px;
+    overflow-x: auto;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .week-header {
+    display: grid;
+    background: #fafafa;
+    border-bottom: 1px solid #e5e5ea;
+    width: max-content;
+    min-width: 100%;
+  }
+  .week-header-cell {
+    padding: 10px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    color: #6e6e73;
+    border-right: 1px solid #e5e5ea;
+  }
+  .week-header-cell:last-child { border-right: none; }
+  .week-header-cell.today {
+    color: #007aff;
+    border-top: 2px solid #39ff14;
+    border-left: 2px solid #39ff14;
+    border-right: 2px solid #39ff14;
+  }
+  .week-header-cell.project-col-header {
+    text-align: left;
+    padding-left: 16px;
+    background: #fafafa;
+    position: sticky;
+    left: 0;
+    z-index: 3;
+  }
+  .project-row {
+    display: grid;
+    border-bottom: 1px solid #e5e5ea;
+    min-height: 90px;
+    width: max-content;
+    min-width: 100%;
+  }
+  .project-row:last-child { border-bottom: none; }
+  .project-label {
+    padding: 10px 12px;
+    border-right: 1px solid #e5e5ea;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    cursor: pointer;
+  }
+  .project-name-pill {
+    background: #fff;
+    color: #000;
+    padding: 5px 12px;
+    border-radius: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    word-break: break-word;
+    line-height: 1.3;
+    flex: 1;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  }
+  .project-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+  .project-name { flex: 1; word-break: break-word; }
+  .project-del {
+    background: transparent;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 4px;
+  }
+  .project-del:hover { color: #ff3b30; }
+  .day-cell {
+    padding: 6px;
+    border-right: 1px solid #e5e5ea;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 90px;
+  }
+  .day-cell:last-child { border-right: none; }
+  .day-cell.today {
+    background: #f0f7ff;
+    border-left: 2px solid #39ff14;
+    border-right: 2px solid #39ff14;
+  }
+  .project-row:last-child .day-cell.today {
+    border-bottom: 2px solid #39ff14;
+  }
+  .task {
+    padding: 6px 8px;
+    background: var(--task-bg, #f5f5f7);
+    border-radius: 6px;
+    font-size: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    cursor: grab;
+    border-left: 3px solid #ccc;
+    transition: background 0.1s;
+  }
+  .task:active { cursor: grabbing; }
+  .task:hover { background: var(--task-bg-hover, #ebebf0); }
+  .task.done { opacity: 0.55; }
+  .task.done .task-title { text-decoration: line-through; }
+  .task.dragging { opacity: 0.4; }
+  .day-cell.drop-target,
+  .month-day.drop-target,
+  .day-project-block.drop-target {
+    outline: 2px dashed #007aff;
+    outline-offset: -2px;
+    background: #e8f2ff;
+  }
+  .task-status {
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+  .task-title { flex: 1; word-break: break-word; }
+  .task-actions {
+    display: flex;
+    gap: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .task:hover .task-actions { opacity: 1; }
+  .task-act-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 11px;
+    color: #6e6e73;
+    padding: 0 2px;
+  }
+  .task-act-btn:hover { color: #007aff; }
+
+  /* Day view */
+  .day-view {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .day-project-block {
+    margin-bottom: 22px;
+  }
+  .day-project-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .day-tasks { display: flex; flex-direction: column; gap: 6px; }
+
+  /* Month view */
+  .month-view {
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .month-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .month-day {
+    min-height: 110px;
+    padding: 8px;
+    border-right: 1px solid #e5e5ea;
+    border-bottom: 1px solid #e5e5ea;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: pointer;
+  }
+  .month-day:hover { background: #fafafa; }
+  .month-day.today { background: #f0f7ff; }
+  .month-day.other-month { background: #fafafa; color: #aaa; }
+  .month-day-num { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .month-task-mini {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f0f0f3;
+    border-left: 2px solid #ccc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .month-task-mini.done { opacity: 0.5; text-decoration: line-through; }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    width: 90%;
+    max-width: 440px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  }
+  .modal h2 { font-size: 17px; margin-bottom: 16px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #6e6e73;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #d2d2d7;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .form-group input:focus, .form-group select:focus {
+    outline: none;
+    border-color: #007aff;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .project-inline-add {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .project-inline-add input { flex: 1; }
+  .color-picker {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .color-swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+  }
+  .color-swatch.selected { border-color: #1d1d1f; }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #6e6e73;
+  }
+  .fab {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #007aff;
+    color: #fff;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,122,255,0.4);
+    z-index: 50;
+  }
+  .fab:hover { background: #0062cc; }
+
+  /* Quick add */
+  .quick-add-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    background: linear-gradient(135deg, #f0f7ff 0%, #fef5ff 100%);
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid #e0e8ff;
+  }
+  .quick-add-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .quick-add-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    padding: 6px 4px;
+    outline: none;
+    font-family: inherit;
+  }
+  .quick-add-input::placeholder { color: #8e8e93; }
+  .quick-add-status {
+    font-size: 11px;
+    color: #6e6e73;
+    min-width: 140px;
+    text-align: right;
+  }
+  .quick-add-status.error { color: #ff3b30; }
+  .quick-add-status.success { color: #34c759; }
+  .gear-btn {
+    background: transparent;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    color: #6e6e73;
+  }
+  .gear-btn:hover { background: #e4e4e9; color: #1d1d1f; }
+  .toast {
+    position: fixed;
+    bottom: 90px;
+    right: 24px;
+    background: #1d1d1f;
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+    z-index: 200;
+    animation: slideIn 0.2s ease;
+  }
+  .toast.error { background: #ff3b30; }
+  .toast.success { background: #34c759; }
+  @keyframes slideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* Header identity + info */
+  .title-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  #appTitle { cursor: text; }
+  #appTitle:hover { opacity: 0.7; }
+  .greeting { font-size: 13px; color: #6e6e73; }
+  .greeting .name { cursor: text; color: #1d1d1f; font-weight: 500; }
+  .greeting .name:hover { opacity: 0.7; text-decoration: underline; }
+  .header-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .header-date { font-weight: 500; color: #1d1d1f; }
+  .header-weather { color: #6e6e73; font-size: 12px; }
+  .header-sync { color: #6e6e73; font-size: 11px; cursor: pointer; }
+  .header-sync.ok { color: #34c759; }
+  .header-sync.err { color: #ff3b30; }
+  .header-sync.busy { color: #007aff; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="top-row">
+    <div class="title-block">
+      <h1 id="appTitle" title="Click to rename">📋 Project Manager</h1>
+      <div class="greeting">Hi, <span class="name" id="greetingName" title="Click to rename">Kailu</span> 👋</div>
+    </div>
+    <div class="header-info">
+      <div class="header-date" id="headerDate"></div>
+      <div class="header-weather" id="headerWeather">Loading weather…</div>
+      <div class="header-sync" id="headerSync" title="GitHub sync (click for settings)">☁ Sync off</div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <div class="view-switcher">
+        <button class="view-btn" data-view="day">Day</button>
+        <button class="view-btn active" data-view="week">Week</button>
+        <button class="view-btn" data-view="month">Month</button>
+      </div>
+      <button class="btn" id="newTaskBtn">+ Task</button>
+      <button class="btn btn-sec" id="newProjectBtn">+ Project</button>
+    </div>
+  </div>
+  <div class="month-tabs" id="monthTabs"></div>
+  <div class="nav-row">
+    <button class="nav-arrow" id="prevBtn">‹</button>
+    <button class="nav-arrow" id="todayBtn">Today</button>
+    <button class="nav-arrow" id="nextBtn">›</button>
+    <span class="period-label" id="periodLabel"></span>
+  </div>
+  <div class="quick-add-row">
+    <span class="quick-add-icon">✨</span>
+    <input class="quick-add-input" id="quickAddInput"
+      placeholder="Quick add with AI — e.g. &quot;finish slides tomorrow for Marketing&quot; (press Enter)" />
+    <span class="quick-add-status" id="quickAddStatus"></span>
+    <button class="gear-btn" id="settingsBtn" title="API key settings">⚙</button>
+  </div>
+</header>
+
+<main id="mainContent"></main>
+
+<button class="fab" id="fabBtn" title="New task">+</button>
+
+<script>
+/* =========================================================
+   Data
+   ========================================================= */
+const STORAGE_KEY = "pm_app_v1";
+const STATUSES = ["todo", "doing", "done"];
+const STATUS_EMOJI = { todo: "⬜", doing: "🔄", done: "✅" };
+const STATUS_LABEL = { todo: "To Do", doing: "Doing", done: "Done" };
+const COLORS = ["#007aff","#ff3b30","#34c759","#ff9500","#af52de","#ff2d55","#5856d6","#00c7be"];
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (!parsed.appName) parsed.appName = "📋 Project Manager";
+      if (!parsed.userName) parsed.userName = "Kailu";
+      return parsed;
+    }
+  } catch (e) {}
+  return {
+    projects: [],
+    tasks: [],
+    activeMonth: monthKey(new Date()),
+    months: [monthKey(new Date())],
+    view: "week",
+    anchorDate: isoDate(new Date()),
+    appName: "📋 Project Manager",
+    userName: "Kailu",
+  };
+}
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  scheduleGhSync();
+}
+
+let state = loadState();
+
+/* =========================================================
+   Date utils
+   ========================================================= */
+function pad(n) { return String(n).padStart(2, "0"); }
+function isoDate(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function monthKey(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+function parseISO(s) { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); }
+function monthLabel(key) {
+  const [y,m] = key.split("-").map(Number);
+  const date = new Date(y, m-1, 1);
+  return date.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
+function addDays(dateStr, n) {
+  const d = parseISO(dateStr);
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
+}
+function startOfWeek(dateStr) {
+  const d = parseISO(dateStr);
+  const day = d.getDay(); // 0=Sun
+  d.setDate(d.getDate() - day);
+  return isoDate(d);
+}
+function weekDates(anchor) {
+  const start = startOfWeek(anchor);
+  return Array.from({length: 7}, (_,i) => addDays(start, i));
+}
+function isToday(dateStr) { return dateStr === isoDate(new Date()); }
+function sameMonth(dateStr, mKey) { return dateStr.slice(0,7) === mKey; }
+
+/* =========================================================
+   State helpers
+   ========================================================= */
+function currentMonthProjects() {
+  return state.projects.filter(p => p.months.includes(state.activeMonth));
+}
+function tasksFor(projectId, dateStr) {
+  return state.tasks.filter(t => t.projectId === projectId && t.date === dateStr);
+}
+function tasksOnDate(dateStr) {
+  return state.tasks.filter(t => t.date === dateStr);
+}
+function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
+
+function addProject(name, color) {
+  const existing = state.projects.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    if (!existing.months.includes(state.activeMonth)) existing.months.push(state.activeMonth);
+    saveState();
+    return existing.id;
+  }
+  const id = uid();
+  state.projects.push({ id, name, color: color || COLORS[state.projects.length % COLORS.length], months: [state.activeMonth] });
+  saveState();
+  return id;
+}
+function deleteProject(id) {
+  if (!confirm("Remove this project from this month? (Tasks will also be deleted for this month.)")) return;
+  const proj = state.projects.find(p => p.id === id);
+  if (!proj) return;
+  proj.months = proj.months.filter(m => m !== state.activeMonth);
+  state.tasks = state.tasks.filter(t => !(t.projectId === id && sameMonth(t.date, state.activeMonth)));
+  if (proj.months.length === 0) state.projects = state.projects.filter(p => p.id !== id);
+  saveState();
+  render();
+}
+function addTask({ projectId, title, date }) {
+  state.tasks.push({ id: uid(), projectId, title, date, status: "todo" });
+  saveState();
+}
+function cycleStatus(taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  const idx = STATUSES.indexOf(t.status);
+  t.status = STATUSES[(idx + 1) % STATUSES.length];
+  saveState();
+  render();
+}
+function deleteTask(taskId) {
+  state.tasks = state.tasks.filter(t => t.id !== taskId);
+  saveState();
+  render();
+}
+function moveTask(taskId, newProjectId, newDate) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  if (!newProjectId) newProjectId = t.projectId;
+  if (!newDate) newDate = t.date;
+  if (t.projectId === newProjectId && t.date === newDate) return;
+  t.projectId = newProjectId;
+  t.date = newDate;
+  const newMonth = newDate.slice(0, 7);
+  if (!state.months.includes(newMonth)) state.months.push(newMonth);
+  const proj = state.projects.find(p => p.id === newProjectId);
+  if (proj && !proj.months.includes(newMonth)) proj.months.push(newMonth);
+  saveState();
+  render();
+}
+
+function attachDropZone(el, getTarget) {
+  el.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    el.classList.add("drop-target");
+  });
+  el.addEventListener("dragleave", (e) => {
+    if (!el.contains(e.relatedTarget)) el.classList.remove("drop-target");
+  });
+  el.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    el.classList.remove("drop-target");
+    const taskId = e.dataTransfer.getData("text/plain");
+    if (!taskId) return;
+    const { projectId, date } = getTarget(taskId);
+    moveTask(taskId, projectId, date);
+  });
+}
+
+function moveTaskToNextDay(taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  t.date = addDays(t.date, 1);
+  const newMonth = t.date.slice(0,7);
+  if (!state.months.includes(newMonth)) state.months.push(newMonth);
+  const proj = state.projects.find(p => p.id === t.projectId);
+  if (proj && !proj.months.includes(newMonth)) proj.months.push(newMonth);
+  saveState();
+  render();
+}
+function rollOverUnfinished(fromDate) {
+  const toDate = addDays(fromDate, 1);
+  const movers = state.tasks.filter(t => t.date === fromDate && t.status !== "done");
+  if (movers.length === 0) { alert("No unfinished tasks to move."); return; }
+  if (!confirm(`Move ${movers.length} unfinished task(s) from ${fromDate} to ${toDate}?`)) return;
+  const newMonth = toDate.slice(0,7);
+  if (!state.months.includes(newMonth)) state.months.push(newMonth);
+  movers.forEach(t => {
+    t.date = toDate;
+    const proj = state.projects.find(p => p.id === t.projectId);
+    if (proj && !proj.months.includes(newMonth)) proj.months.push(newMonth);
+  });
+  saveState();
+  render();
+}
+
+/* =========================================================
+   Rendering
+   ========================================================= */
+const main = document.getElementById("mainContent");
+const monthTabsEl = document.getElementById("monthTabs");
+const periodLabel = document.getElementById("periodLabel");
+
+function render() {
+  renderHeaderIdentity();
+  renderMonthTabs();
+  renderViewSwitcher();
+  renderPeriodLabel();
+  main.innerHTML = "";
+  if (state.view === "day") renderDay();
+  else if (state.view === "week") renderWeek();
+  else renderMonth();
+}
+
+function renderHeaderIdentity() {
+  document.getElementById("appTitle").textContent = state.appName;
+  document.getElementById("greetingName").textContent = state.userName;
+  const now = new Date();
+  document.getElementById("headerDate").textContent =
+    now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+function renderMonthTabs() {
+  state.months.sort();
+  monthTabsEl.innerHTML = "";
+  state.months.forEach(m => {
+    const btn = document.createElement("button");
+    btn.className = "month-tab" + (m === state.activeMonth ? " active" : "");
+    btn.textContent = monthLabel(m);
+    btn.onclick = () => {
+      state.activeMonth = m;
+      const [y, mm] = m.split("-").map(Number);
+      const cur = parseISO(state.anchorDate);
+      if (cur.getFullYear() !== y || cur.getMonth() !== mm-1) {
+        state.anchorDate = isoDate(new Date(y, mm-1, 1));
+      }
+      saveState();
+      render();
+    };
+    monthTabsEl.appendChild(btn);
+  });
+  const addBtn = document.createElement("button");
+  addBtn.className = "month-tab";
+  addBtn.textContent = "+ Month";
+  addBtn.onclick = () => {
+    const last = state.months.sort().slice(-1)[0] || monthKey(new Date());
+    const [y,m] = last.split("-").map(Number);
+    const d = new Date(y, m, 1);
+    const nk = monthKey(d);
+    if (!state.months.includes(nk)) state.months.push(nk);
+    state.activeMonth = nk;
+    state.anchorDate = isoDate(d);
+    saveState();
+    render();
+  };
+  monthTabsEl.appendChild(addBtn);
+}
+
+function renderViewSwitcher() {
+  document.querySelectorAll(".view-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.view === state.view);
+  });
+}
+
+function renderPeriodLabel() {
+  const d = parseISO(state.anchorDate);
+  if (state.view === "day") {
+    periodLabel.textContent = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  } else if (state.view === "week") {
+    const [y, m] = state.activeMonth.split("-").map(Number);
+    periodLabel.textContent = new Date(y, m-1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  } else {
+    periodLabel.textContent = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  }
+}
+
+const weekScrollByMonth = {};
+const DAY_COL_W = 140;
+const PROJ_COL_W = 200;
+
+function renderWeek() {
+  const projects = currentMonthProjects();
+  const [y, m] = state.activeMonth.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => isoDate(new Date(y, m - 1, i + 1)));
+  const cols = `${PROJ_COL_W}px repeat(${days.length}, ${DAY_COL_W}px)`;
+
+  const grid = document.createElement("div");
+  grid.className = "week-grid";
+
+  const header = document.createElement("div");
+  header.className = "week-header";
+  header.style.gridTemplateColumns = cols;
+  const hProj = document.createElement("div");
+  hProj.className = "week-header-cell project-col-header";
+  hProj.textContent = "Project";
+  header.appendChild(hProj);
+  days.forEach(dStr => {
+    const cell = document.createElement("div");
+    cell.className = "week-header-cell" + (isToday(dStr) ? " today" : "");
+    const d = parseISO(dStr);
+    cell.innerHTML = `${d.toLocaleDateString(undefined,{weekday:"short"})}<br><span style="font-size:14px">${d.getDate()}</span>`;
+    header.appendChild(cell);
+  });
+  grid.appendChild(header);
+
+  if (projects.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = `No projects for ${monthLabel(state.activeMonth)}. Click <strong>+ Project</strong> or <strong>+ Task</strong> to begin.`;
+    grid.appendChild(empty);
+    main.appendChild(grid);
+    return;
+  }
+
+  projects.forEach(proj => {
+    const row = document.createElement("div");
+    row.className = "project-row";
+    row.style.gridTemplateColumns = cols;
+
+    const label = document.createElement("div");
+    label.className = "project-label";
+    label.style.background = proj.color;
+    label.title = "Click to change color";
+
+    const pill = document.createElement("span");
+    pill.className = "project-name-pill";
+    pill.textContent = proj.name;
+    label.appendChild(pill);
+
+    const del = document.createElement("button");
+    del.className = "project-del";
+    del.innerHTML = "×";
+    del.title = "Remove project from month";
+    del.style.color = "#fff";
+    del.onclick = (e) => { e.stopPropagation(); deleteProject(proj.id); };
+    label.appendChild(del);
+
+    label.onclick = (e) => {
+      if (e.target.closest(".project-del") || e.target.closest(".project-name-pill")) return;
+      editProjectColor(proj.id);
+    };
+    pill.onclick = (e) => { e.stopPropagation(); editProjectColor(proj.id); };
+    row.appendChild(label);
+
+    days.forEach(dStr => {
+      const cell = document.createElement("div");
+      cell.className = "day-cell" + (isToday(dStr) ? " today" : "");
+      cell.style.cursor = "text";
+      tasksFor(proj.id, dStr).forEach(t => cell.appendChild(taskEl(t, proj)));
+      cell.onclick = () => startInlineAdd(cell, proj.id, dStr);
+      attachDropZone(cell, () => ({ projectId: proj.id, date: dStr }));
+      row.appendChild(cell);
+    });
+    grid.appendChild(row);
+  });
+
+  main.appendChild(grid);
+
+  const saved = weekScrollByMonth[state.activeMonth];
+  const todayIdx = days.indexOf(isoDate(new Date()));
+  requestAnimationFrame(() => {
+    if (saved != null) {
+      grid.scrollLeft = saved;
+    } else if (todayIdx >= 0) {
+      grid.scrollLeft = Math.max(0, todayIdx * DAY_COL_W - DAY_COL_W);
+    }
+  });
+  grid.addEventListener("scroll", () => {
+    weekScrollByMonth[state.activeMonth] = grid.scrollLeft;
+  });
+}
+
+function renderDay() {
+  const dateStr = state.anchorDate;
+  const wrap = document.createElement("div");
+  wrap.className = "day-view";
+
+  const rollBtn = document.createElement("button");
+  rollBtn.className = "btn btn-sec";
+  rollBtn.style.marginBottom = "14px";
+  rollBtn.textContent = "↪ Move unfinished tasks to next day";
+  rollBtn.onclick = () => rollOverUnfinished(dateStr);
+  wrap.appendChild(rollBtn);
+
+  const projects = currentMonthProjects();
+  const dayTasks = tasksOnDate(dateStr);
+  if (projects.length === 0 && dayTasks.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "No projects yet — add one to get started.";
+    wrap.appendChild(empty);
+    main.appendChild(wrap);
+    return;
+  }
+  const projIds = new Set([...projects.map(p=>p.id), ...dayTasks.map(t=>t.projectId)]);
+  projIds.forEach(pid => {
+    const proj = state.projects.find(p => p.id === pid);
+    if (!proj) return;
+    const tasks = tasksFor(pid, dateStr);
+    const block = document.createElement("div");
+    block.className = "day-project-block";
+    block.innerHTML = `<div class="day-project-title"><span class="project-dot" style="background:${proj.color}; cursor:pointer;" title="Click to change color"></span>${escapeHtml(proj.name)}</div>`;
+    block.querySelector(".project-dot").onclick = (e) => { e.stopPropagation(); editProjectColor(proj.id); };
+    const tasksWrap = document.createElement("div");
+    tasksWrap.className = "day-tasks";
+    tasks.forEach(t => tasksWrap.appendChild(taskEl(t, proj)));
+    if (tasks.length === 0) {
+      const ph = document.createElement("div");
+      ph.style.cssText = "color:#c7c7cc; font-size:12px; cursor:text; padding:4px 0;";
+      ph.textContent = "Click to add a task…";
+      tasksWrap.appendChild(ph);
+    }
+    tasksWrap.style.cursor = "text";
+    tasksWrap.style.minHeight = "40px";
+    tasksWrap.onclick = () => startInlineAdd(tasksWrap, pid, dateStr);
+    attachDropZone(block, () => ({ projectId: pid, date: dateStr }));
+    block.appendChild(tasksWrap);
+    wrap.appendChild(block);
+  });
+
+  main.appendChild(wrap);
+}
+
+function renderMonth() {
+  const [y, m] = state.activeMonth.split("-").map(Number);
+  const first = new Date(y, m-1, 1);
+  const startPad = first.getDay();
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startPad; i++) {
+    const d = new Date(y, m-1, 1 - (startPad - i));
+    cells.push({ dateStr: isoDate(d), inMonth: false });
+  }
+  for (let i = 1; i <= daysInMonth; i++) {
+    cells.push({ dateStr: isoDate(new Date(y, m-1, i)), inMonth: true });
+  }
+  while (cells.length % 7 !== 0) {
+    const last = parseISO(cells[cells.length-1].dateStr);
+    last.setDate(last.getDate() + 1);
+    cells.push({ dateStr: isoDate(last), inMonth: false });
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "month-view";
+  const header = document.createElement("div");
+  header.className = "month-grid";
+  header.style.background = "#fafafa";
+  ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d => {
+    const c = document.createElement("div");
+    c.className = "week-header-cell";
+    c.textContent = d;
+    header.appendChild(c);
+  });
+  wrap.appendChild(header);
+
+  const grid = document.createElement("div");
+  grid.className = "month-grid";
+  cells.forEach(({ dateStr, inMonth }) => {
+    const cell = document.createElement("div");
+    cell.className = "month-day" + (!inMonth ? " other-month" : "") + (isToday(dateStr) ? " today" : "");
+    cell.innerHTML = `<div class="month-day-num">${parseISO(dateStr).getDate()}</div>`;
+    tasksOnDate(dateStr).slice(0, 4).forEach(t => {
+      const proj = state.projects.find(p => p.id === t.projectId);
+      const m = document.createElement("div");
+      m.className = "month-task-mini" + (t.status === "done" ? " done" : "");
+      m.style.borderLeftColor = proj ? proj.color : "#ccc";
+      if (proj) m.style.background = `color-mix(in srgb, ${proj.color} 14%, white)`;
+      m.innerHTML = `${STATUS_EMOJI[t.status]} ${escapeHtml(t.title)}`;
+      cell.appendChild(m);
+    });
+    const more = tasksOnDate(dateStr).length - 4;
+    if (more > 0) {
+      const mm = document.createElement("div");
+      mm.style.cssText = "font-size:10px; color:#6e6e73;";
+      mm.textContent = `+${more} more`;
+      cell.appendChild(mm);
+    }
+    cell.onclick = () => {
+      state.anchorDate = dateStr;
+      state.view = "day";
+      if (!state.months.includes(dateStr.slice(0,7))) state.months.push(dateStr.slice(0,7));
+      state.activeMonth = dateStr.slice(0,7);
+      saveState();
+      render();
+    };
+    attachDropZone(cell, (taskId) => {
+      const t = state.tasks.find(x => x.id === taskId);
+      return { projectId: t ? t.projectId : null, date: dateStr };
+    });
+    grid.appendChild(cell);
+  });
+  wrap.appendChild(grid);
+  main.appendChild(wrap);
+}
+
+function startEditTitle(t, titleEl, taskRoot) {
+  if (taskRoot.querySelector(".title-edit-input")) return;
+  const input = document.createElement("input");
+  input.className = "title-edit-input";
+  input.type = "text";
+  input.value = t.title;
+  input.style.cssText = "flex:1; border:1px solid #007aff; border-radius:4px; padding:2px 4px; font-size:12px; font-family:inherit; min-width:0; outline:none; background:#fff;";
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const val = input.value.trim();
+    if (val && val !== t.title) { t.title = val; saveState(); }
+    render();
+  };
+  const cancel = () => { if (done) return; done = true; render(); };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener("blur", commit);
+  input.addEventListener("click", (e) => e.stopPropagation());
+}
+
+function startInlineAdd(container, projectId, dateStr) {
+  const existing = container.querySelector(".inline-add-input");
+  if (existing) { existing.focus(); return; }
+  const input = document.createElement("input");
+  input.className = "inline-add-input";
+  input.type = "text";
+  input.placeholder = "New task…";
+  input.style.cssText = "border:1px solid #007aff; border-radius:4px; padding:4px 6px; font-size:12px; font-family:inherit; outline:none; width:100%; background:#fff;";
+  container.appendChild(input);
+  input.focus();
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const val = input.value.trim();
+    if (val) {
+      const taskMonth = dateStr.slice(0, 7);
+      if (!state.months.includes(taskMonth)) state.months.push(taskMonth);
+      const proj = state.projects.find(p => p.id === projectId);
+      if (proj && !proj.months.includes(taskMonth)) proj.months.push(taskMonth);
+      state.tasks.push({ id: uid(), projectId, title: val, date: dateStr, status: "todo" });
+      saveState();
+    }
+    render();
+  };
+  const cancel = () => { if (done) return; done = true; render(); };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener("blur", commit);
+  input.addEventListener("click", (e) => e.stopPropagation());
+}
+
+function taskEl(t, proj) {
+  const el = document.createElement("div");
+  el.className = "task" + (t.status === "done" ? " done" : "");
+  el.style.borderLeftColor = proj.color;
+  el.style.setProperty("--task-bg", `color-mix(in srgb, ${proj.color} 14%, white)`);
+  el.style.setProperty("--task-bg-hover", `color-mix(in srgb, ${proj.color} 22%, white)`);
+  el.draggable = true;
+  el.addEventListener("dragstart", (e) => {
+    e.dataTransfer.setData("text/plain", t.id);
+    e.dataTransfer.effectAllowed = "move";
+    el.classList.add("dragging");
+  });
+  el.addEventListener("dragend", () => el.classList.remove("dragging"));
+
+  const stat = document.createElement("button");
+  stat.className = "task-status";
+  stat.textContent = STATUS_EMOJI[t.status];
+  stat.title = `Status: ${STATUS_LABEL[t.status]} (click to cycle)`;
+  stat.onclick = (e) => { e.stopPropagation(); cycleStatus(t.id); };
+  el.appendChild(stat);
+
+  const title = document.createElement("span");
+  title.className = "task-title";
+  title.textContent = t.title;
+  el.appendChild(title);
+
+  const actions = document.createElement("span");
+  actions.className = "task-actions";
+  const move = document.createElement("button");
+  move.className = "task-act-btn";
+  move.textContent = "→";
+  move.title = "Move to next day";
+  move.onclick = (e) => { e.stopPropagation(); moveTaskToNextDay(t.id); };
+  actions.appendChild(move);
+  const del = document.createElement("button");
+  del.className = "task-act-btn";
+  del.textContent = "×";
+  del.title = "Delete";
+  del.onclick = (e) => { e.stopPropagation(); if (confirm("Delete this task?")) deleteTask(t.id); };
+  actions.appendChild(del);
+  el.appendChild(actions);
+
+  el.onclick = (e) => {
+    e.stopPropagation();
+    startEditTitle(t, title, el);
+  };
+  return el;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+/* =========================================================
+   Modals
+   ========================================================= */
+function openTaskModal(prefill = {}) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+
+  const monthProjects = currentMonthProjects();
+  const defaultDate = prefill.date || state.anchorDate;
+  const defaultProjectId = prefill.projectId || (monthProjects[0] && monthProjects[0].id) || "";
+
+  modal.innerHTML = `
+    <h2>New Task</h2>
+    <div class="form-group">
+      <label>Title</label>
+      <input id="mTitle" type="text" placeholder="What needs to be done?" autofocus />
+    </div>
+    <div class="form-group">
+      <label>Project</label>
+      <select id="mProject"></select>
+      <div class="project-inline-add">
+        <input id="mNewProj" type="text" placeholder="…or create a new project" />
+        <button class="btn btn-sec" id="mAddProj">Add</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Date</label>
+      <input id="mDate" type="date" value="${defaultDate}" />
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <select id="mStatus">
+        ${STATUSES.map(s => `<option value="${s}">${STATUS_EMOJI[s]} ${STATUS_LABEL[s]}</option>`).join("")}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="mCancel">Cancel</button>
+      <button class="btn" id="mSave">Create</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
+
+  const projSelect = modal.querySelector("#mProject");
+  function refillProjects(selectId) {
+    projSelect.innerHTML = "";
+    currentMonthProjects().forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name;
+      projSelect.appendChild(opt);
+    });
+    if (selectId) projSelect.value = selectId;
+    else if (defaultProjectId) projSelect.value = defaultProjectId;
+  }
+  refillProjects();
+
+  modal.querySelector("#mAddProj").onclick = () => {
+    const name = modal.querySelector("#mNewProj").value.trim();
+    if (!name) return;
+    const id = addProject(name);
+    modal.querySelector("#mNewProj").value = "";
+    refillProjects(id);
+  };
+  modal.querySelector("#mCancel").onclick = () => document.body.removeChild(backdrop);
+  modal.querySelector("#mSave").onclick = () => {
+    const title = modal.querySelector("#mTitle").value.trim();
+    const projectId = projSelect.value;
+    const date = modal.querySelector("#mDate").value;
+    const status = modal.querySelector("#mStatus").value;
+    if (!title) { alert("Please enter a title."); return; }
+    if (!projectId) { alert("Please select or create a project."); return; }
+    if (!date) { alert("Please pick a date."); return; }
+    const taskMonth = date.slice(0,7);
+    if (!state.months.includes(taskMonth)) state.months.push(taskMonth);
+    const proj = state.projects.find(p => p.id === projectId);
+    if (proj && !proj.months.includes(taskMonth)) proj.months.push(taskMonth);
+    state.tasks.push({ id: uid(), projectId, title, date, status });
+    saveState();
+    document.body.removeChild(backdrop);
+    render();
+  };
+  modal.querySelector("#mTitle").focus();
+  modal.querySelector("#mTitle").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") modal.querySelector("#mSave").click();
+  });
+}
+
+function normalizeHex(v) {
+  if (!v) return null;
+  v = v.trim();
+  if (!v.startsWith("#")) v = "#" + v;
+  if (/^#[0-9a-f]{3}$/i.test(v)) {
+    return "#" + v.slice(1).split("").map(c => c + c).join("").toLowerCase();
+  }
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
+  return null;
+}
+
+function bindColorControls(modal, initial, onChange) {
+  let selected = initial;
+  const hexInput = modal.querySelector("#pHex");
+  const picker = modal.querySelector("#pPick");
+  const sync = (c, skipHex) => {
+    selected = c;
+    modal.querySelectorAll(".color-swatch").forEach(s => {
+      s.classList.toggle("selected", s.dataset.color.toLowerCase() === c.toLowerCase());
+    });
+    picker.value = normalizeHex(c) || "#000000";
+    if (!skipHex) hexInput.value = c;
+    onChange(c);
+  };
+  modal.querySelectorAll(".color-swatch").forEach(sw => {
+    sw.onclick = () => sync(sw.dataset.color);
+  });
+  hexInput.addEventListener("input", () => {
+    const n = normalizeHex(hexInput.value);
+    if (n) sync(n, true);
+  });
+  picker.addEventListener("input", () => sync(picker.value));
+  return () => selected;
+}
+
+function openProjectModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  const initial = COLORS[state.projects.length % COLORS.length];
+  modal.innerHTML = `
+    <h2>New Project</h2>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="pName" type="text" placeholder="Project name" autofocus />
+    </div>
+    <div class="form-group">
+      <label>Color</label>
+      <div class="color-picker" id="pColors">
+        ${COLORS.map(c => `<div class="color-swatch${c===initial?' selected':''}" data-color="${c}" style="background:${c}"></div>`).join("")}
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+        <input id="pHex" type="text" placeholder="#007aff" value="${initial}" style="flex:1; font-family:ui-monospace,Menlo,monospace;" />
+        <input id="pPick" type="color" value="${initial}" style="width:42px; height:38px; padding:2px; border:1px solid #d2d2d7; border-radius:8px; cursor:pointer;" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="pCancel">Cancel</button>
+      <button class="btn" id="pSave">Create</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
+  const getColor = bindColorControls(modal, initial, () => {});
+  modal.querySelector("#pCancel").onclick = () => document.body.removeChild(backdrop);
+  modal.querySelector("#pSave").onclick = () => {
+    const name = modal.querySelector("#pName").value.trim();
+    if (!name) { alert("Please enter a name."); return; }
+    const color = normalizeHex(getColor());
+    if (!color) { alert("Enter a valid hex color like #007aff"); return; }
+    addProject(name, color);
+    document.body.removeChild(backdrop);
+    render();
+  };
+  modal.querySelector("#pName").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") modal.querySelector("#pSave").click();
+  });
+}
+
+function editProjectColor(id) {
+  const proj = state.projects.find(p => p.id === id);
+  if (!proj) return;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  const initial = normalizeHex(proj.color) || "#007aff";
+  const isPreset = COLORS.some(c => c.toLowerCase() === initial.toLowerCase());
+  modal.innerHTML = `
+    <h2>Edit color — ${escapeHtml(proj.name)}</h2>
+    <div class="form-group">
+      <label>Presets</label>
+      <div class="color-picker" id="pColors">
+        ${COLORS.map(c => `<div class="color-swatch${c.toLowerCase()===initial.toLowerCase()?' selected':''}" data-color="${c}" style="background:${c}"></div>`).join("")}
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Custom hex</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="pHex" type="text" placeholder="#007aff" value="${isPreset ? initial : proj.color}" style="flex:1; font-family:ui-monospace,Menlo,monospace;" />
+        <input id="pPick" type="color" value="${initial}" style="width:42px; height:38px; padding:2px; border:1px solid #d2d2d7; border-radius:8px; cursor:pointer;" />
+      </div>
+      <div style="font-size:11px; color:#6e6e73; margin-top:6px;">Accepts #RGB or #RRGGBB.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="pCancel">Cancel</button>
+      <button class="btn" id="pSave">Save</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
+  const getColor = bindColorControls(modal, initial, () => {});
+  modal.querySelector("#pCancel").onclick = () => document.body.removeChild(backdrop);
+  modal.querySelector("#pSave").onclick = () => {
+    const color = normalizeHex(getColor());
+    if (!color) { alert("Enter a valid hex color like #007aff"); return; }
+    proj.color = color;
+    saveState();
+    document.body.removeChild(backdrop);
+    render();
+  };
+}
+
+/* =========================================================
+   Events
+   ========================================================= */
+document.getElementById("newTaskBtn").onclick = () => openTaskModal();
+document.getElementById("fabBtn").onclick = () => openTaskModal();
+document.getElementById("newProjectBtn").onclick = openProjectModal;
+
+document.querySelectorAll(".view-btn").forEach(b => {
+  b.onclick = () => { state.view = b.dataset.view; saveState(); render(); };
+});
+
+document.getElementById("prevBtn").onclick = () => {
+  if (state.view === "day") state.anchorDate = addDays(state.anchorDate, -1);
+  else if (state.view === "week") state.anchorDate = addDays(state.anchorDate, -7);
+  else {
+    const [y,m] = state.activeMonth.split("-").map(Number);
+    const d = new Date(y, m-2, 1);
+    state.anchorDate = isoDate(d);
+    const k = monthKey(d);
+    if (!state.months.includes(k)) state.months.push(k);
+    state.activeMonth = k;
+  }
+  syncActiveMonth();
+  saveState(); render();
+};
+document.getElementById("nextBtn").onclick = () => {
+  if (state.view === "day") state.anchorDate = addDays(state.anchorDate, 1);
+  else if (state.view === "week") state.anchorDate = addDays(state.anchorDate, 7);
+  else {
+    const [y,m] = state.activeMonth.split("-").map(Number);
+    const d = new Date(y, m, 1);
+    state.anchorDate = isoDate(d);
+    const k = monthKey(d);
+    if (!state.months.includes(k)) state.months.push(k);
+    state.activeMonth = k;
+  }
+  syncActiveMonth();
+  saveState(); render();
+};
+document.getElementById("todayBtn").onclick = () => {
+  state.anchorDate = isoDate(new Date());
+  const k = monthKey(new Date());
+  if (!state.months.includes(k)) state.months.push(k);
+  state.activeMonth = k;
+  saveState(); render();
+};
+
+function syncActiveMonth() {
+  const k = state.anchorDate.slice(0,7);
+  if (!state.months.includes(k)) state.months.push(k);
+  state.activeMonth = k;
+}
+
+/* =========================================================
+   Quick Add (LLM-powered)
+   ========================================================= */
+const API_KEY_STORAGE = "pm_api_key";
+const CLAUDE_MODEL = "claude-haiku-4-5";
+const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+
+function getApiKey() { return localStorage.getItem(API_KEY_STORAGE) || ""; }
+function setApiKey(k) { localStorage.setItem(API_KEY_STORAGE, k); }
+
+function showToast(message, kind = "") {
+  const t = document.createElement("div");
+  t.className = "toast" + (kind ? " " + kind : "");
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.transition = "opacity 0.3s"; t.style.opacity = "0"; }, 2200);
+  setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 2600);
+}
+
+function openSettingsModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  const current = getApiKey();
+  const provider = getProvider();
+  modal.innerHTML = `
+    <h2>⚙ Settings</h2>
+    <div class="form-group">
+      <label>Quick-add provider</label>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:13px;">
+        <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+          <input type="radio" name="sProv" value="claude" ${provider === "claude" ? "checked" : ""} style="margin-top:3px;" />
+          <span><b>Claude Haiku 4.5</b> — best quality, ~$0.001/task, needs API key</span>
+        </label>
+        <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+          <input type="radio" name="sProv" value="nano" ${provider === "nano" ? "checked" : ""} style="margin-top:3px;" />
+          <span><b>Gemini Nano</b> — free, on-device, Chrome only</span>
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Claude API Key</label>
+      <input id="sKey" type="password" placeholder="sk-ant-..." value="${escapeHtml(current)}" />
+      <div style="font-size:11px; color:#6e6e73; margin-top:6px;">
+        Stored in browser localStorage. Get one at
+        <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#007aff;">console.anthropic.com</a>.
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Gemini Nano</label>
+      <button class="btn btn-sec" id="sNanoSetup" type="button" style="width:100%;">✨ Set up Gemini Nano</button>
+      <div style="font-size:11px; color:#6e6e73; margin-top:6px;">
+        Enables Chrome's on-device model. Walks you through flags + one-time download.
+      </div>
+    </div>
+    <div class="form-group">
+      <label>GitHub sync (auto-commit to ${GH_REPO})</label>
+      <input id="sGhToken" type="password" placeholder="github_pat_..." value="${escapeHtml(getGhToken())}" />
+      <div style="font-size:11px; color:#6e6e73; margin-top:6px;">
+        Fine-grained PAT with <b>Contents: Read and write</b> on this repo.
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" style="color:#007aff;">Create one</a>.
+      </div>
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <button class="btn btn-sec" id="sGhPull" type="button" style="flex:1;">⬇ Pull from GitHub</button>
+        <button class="btn btn-sec" id="sGhPush" type="button" style="flex:1;">⬆ Push now</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="sCancel">Cancel</button>
+      <button class="btn" id="sSave">Save</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
+  modal.querySelector("#sCancel").onclick = () => document.body.removeChild(backdrop);
+  modal.querySelector("#sNanoSetup").onclick = () => {
+    document.body.removeChild(backdrop);
+    openNanoWizard();
+  };
+  modal.querySelector("#sGhPull").onclick = async () => {
+    const t = modal.querySelector("#sGhToken").value.trim();
+    setGhToken(t);
+    await loadFromGitHub();
+  };
+  modal.querySelector("#sGhPush").onclick = async () => {
+    const t = modal.querySelector("#sGhToken").value.trim();
+    setGhToken(t);
+    await syncToGitHub();
+  };
+  modal.querySelector("#sSave").onclick = () => {
+    const k = modal.querySelector("#sKey").value.trim();
+    const p = modal.querySelector('input[name="sProv"]:checked').value;
+    const t = modal.querySelector("#sGhToken").value.trim();
+    setApiKey(k);
+    setProvider(p);
+    const tokenChanged = t !== getGhToken();
+    setGhToken(t);
+    document.body.removeChild(backdrop);
+    showToast(`Saved — using ${p === "nano" ? "Gemini Nano" : "Claude Haiku"}`, "success");
+    if (t && tokenChanged) loadFromGitHub();
+    else if (t) setSyncStatus("☁ Synced", "ok");
+    else setSyncStatus("☁ Sync off");
+  };
+}
+
+async function parseQuickAddClaude(text) {
+  const key = getApiKey();
+  if (!key) {
+    openSettingsModal();
+    throw new Error("Set your Claude API key first.");
+  }
+
+  const today = isoDate(new Date());
+  const weekday = new Date().toLocaleDateString(undefined, { weekday: "long" });
+  const projectList = state.projects.map(p => `- ${p.name} (active months: ${p.months.join(", ")})`).join("\n") || "(no projects yet)";
+
+  const system = [
+    {
+      type: "text",
+      text: "You parse short natural-language task descriptions into structured task records for a personal project-management app. Always emit the create_task tool with a concise title, an ISO date, a projectName (reuse an existing project when the input clearly matches one; otherwise invent a short Title-Case name), and status. If the user does not mention a status, default to \"todo\".",
+      cache_control: { type: "ephemeral" }
+    },
+    {
+      type: "text",
+      text: `Today is ${weekday}, ${today}.\n\nExisting projects:\n${projectList}`
+    }
+  ];
+
+  const tools = [{
+    name: "create_task",
+    description: "Create a single task. Call exactly once.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short, imperative task title (3–8 words)." },
+        date: { type: "string", description: "ISO date YYYY-MM-DD. Resolve relative phrases like 'tomorrow', 'next Tuesday', 'Friday' against today." },
+        projectName: { type: "string", description: "Project name. Prefer an existing project name (case-insensitive match); otherwise a short Title-Case name inferred from context." },
+        status: { type: "string", enum: STATUSES, description: "Task status. Default 'todo' unless user says otherwise." }
+      },
+      required: ["title", "date", "projectName", "status"]
+    }
+  }];
+
+  const body = {
+    model: CLAUDE_MODEL,
+    max_tokens: 512,
+    system,
+    tools,
+    tool_choice: { type: "tool", name: "create_task" },
+    messages: [{ role: "user", content: text }]
+  };
+
+  const res = await fetch(CLAUDE_API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`API ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const toolBlock = (data.content || []).find(b => b.type === "tool_use" && b.name === "create_task");
+  if (!toolBlock) throw new Error("Claude did not return a create_task call.");
+  return toolBlock.input;
+}
+
+/* ---- Gemini Nano (Chrome built-in, on-device) ---- */
+const PROVIDER_STORAGE = "pm_provider"; // "claude" | "nano"
+function getProvider() {
+  const p = localStorage.getItem(PROVIDER_STORAGE);
+  if (p) return p;
+  return getApiKey() ? "claude" : "nano";
+}
+function setProvider(p) { localStorage.setItem(PROVIDER_STORAGE, p); }
+
+function hasNanoApi() {
+  return typeof LanguageModel !== "undefined" || !!(window.ai && window.ai.languageModel);
+}
+async function nanoAvailability() {
+  try {
+    if (typeof LanguageModel !== "undefined") return await LanguageModel.availability();
+    if (window.ai?.languageModel) {
+      const caps = await window.ai.languageModel.capabilities();
+      // Older API: "readily" | "after-download" | "no"
+      return caps.available === "readily" ? "available"
+           : caps.available === "after-download" ? "downloadable"
+           : "unavailable";
+    }
+  } catch (e) { return "error:" + (e.message || e); }
+  return "no-api";
+}
+async function nanoCreate(options = {}) {
+  if (typeof LanguageModel !== "undefined") return await LanguageModel.create(options);
+  if (window.ai?.languageModel) return await window.ai.languageModel.create(options);
+  throw new Error("Prompt API not available in this browser.");
+}
+
+async function parseQuickAddNano(text) {
+  const avail = await nanoAvailability();
+  if (avail !== "available") {
+    throw new Error(`Gemini Nano not ready (${avail}). Open Settings → Set up Gemini Nano.`);
+  }
+  const today = isoDate(new Date());
+  const weekday = new Date().toLocaleDateString(undefined, { weekday: "long" });
+  const projectList = state.projects.map(p => p.name).join(", ") || "(none)";
+
+  const systemPrompt =
+    `You convert a short natural-language task description into JSON. ` +
+    `Today is ${weekday}, ${today}. Existing projects: ${projectList}. ` +
+    `Reuse an existing project name (case-insensitive) when it fits; otherwise invent a short Title-Case name. ` +
+    `Resolve relative dates like "tomorrow" or "next Tuesday" against today. ` +
+    `Default status to "todo" unless the user says otherwise.`;
+
+  const schema = {
+    type: "object",
+    properties: {
+      title: { type: "string" },
+      date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      projectName: { type: "string" },
+      status: { type: "string", enum: STATUSES }
+    },
+    required: ["title", "date", "projectName", "status"]
+  };
+
+  let session;
+  try {
+    session = await nanoCreate({ initialPrompts: [{ role: "system", content: systemPrompt }] });
+  } catch (e) {
+    // Fallback: older API doesn't accept initialPrompts — use systemPrompt option
+    session = await nanoCreate({ systemPrompt });
+  }
+  let raw;
+  try {
+    raw = await session.prompt(text, { responseConstraint: schema });
+  } catch (e) {
+    // Older Chrome versions without responseConstraint — ask for JSON explicitly
+    raw = await session.prompt(
+      `${text}\n\nReply with ONLY a JSON object matching: {"title":string,"date":"YYYY-MM-DD","projectName":string,"status":"todo"|"doing"|"done"}. No prose.`
+    );
+  }
+  session.destroy?.();
+
+  // Strip possible code fences
+  raw = String(raw).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  return JSON.parse(raw);
+}
+
+async function parseQuickAdd(text) {
+  const provider = getProvider();
+  if (provider === "nano") return parseQuickAddNano(text);
+  return parseQuickAddClaude(text);
+}
+
+function openNanoWizard() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
+  const close = () => { if (backdrop.parentNode) document.body.removeChild(backdrop); };
+  const set = (html) => { modal.innerHTML = html; };
+
+  const intro = () => {
+    set(`
+      <h2>✨ Set up Gemini Nano</h2>
+      <p style="font-size:13px; color:#6e6e73; margin-bottom:10px;">
+        Runs on-device in Chrome. No API key, no network call, no per-token cost.
+        Weaker than Haiku at nuanced input — great for simple quick-adds.
+      </p>
+      <ul style="font-size:12px; color:#6e6e73; margin-bottom:14px; padding-left:18px; line-height:1.6;">
+        <li>Chrome desktop 127+, decent GPU, ~22 GB free disk</li>
+        <li>First run downloads ~2 GB over a non-metered connection</li>
+        <li>May require flags at <code>chrome://flags</code> — see next step if unavailable</li>
+      </ul>
+      <div class="modal-actions">
+        <button class="btn btn-sec" id="wClose">Cancel</button>
+        <button class="btn" id="wCheck">Check availability</button>
+      </div>
+    `);
+    modal.querySelector("#wClose").onclick = close;
+    modal.querySelector("#wCheck").onclick = check;
+  };
+
+  const check = async () => {
+    set(`<h2>🔍 Checking…</h2><p style="color:#6e6e73; font-size:13px;">Probing Chrome's Prompt API…</p>`);
+    if (!hasNanoApi()) {
+      set(`
+        <h2>❌ Prompt API not found</h2>
+        <p style="font-size:13px; color:#6e6e73; margin-bottom:10px;">Your browser doesn't expose <code>LanguageModel</code>. Try:</p>
+        <ol style="font-size:12px; color:#1d1d1f; margin-bottom:14px; padding-left:20px; line-height:1.7;">
+          <li>Update Chrome to 127+ (desktop only — no mobile support)</li>
+          <li>Go to <code>chrome://flags/#prompt-api-for-gemini-nano</code> → <b>Enabled</b></li>
+          <li>Go to <code>chrome://flags/#optimization-guide-on-device-model</code> → <b>Enabled BypassPerfRequirement</b></li>
+          <li>Restart Chrome, then reload this page</li>
+        </ol>
+        <p style="font-size:11px; color:#6e6e73;">Docs: <a href="https://developer.chrome.com/docs/ai/prompt-api" target="_blank" style="color:#007aff;">developer.chrome.com/docs/ai/prompt-api</a></p>
+        <div class="modal-actions">
+          <button class="btn btn-sec" id="wBack">Back</button>
+          <button class="btn" id="wRetry">Retry</button>
+        </div>
+      `);
+      modal.querySelector("#wBack").onclick = intro;
+      modal.querySelector("#wRetry").onclick = check;
+      return;
+    }
+    const avail = await nanoAvailability();
+    if (avail === "available") return test();
+    if (avail === "downloadable") return download(false);
+    if (avail === "downloading") return download(true);
+    set(`
+      <h2>⚠ Not available</h2>
+      <p style="font-size:13px; color:#6e6e73; margin-bottom:10px;">
+        Status: <code>${escapeHtml(String(avail))}</code>. Your device may not meet hardware requirements,
+        or Chrome flags aren't set correctly.
+      </p>
+      <p style="font-size:11px; color:#6e6e73;">Docs: <a href="https://developer.chrome.com/docs/ai/get-started" target="_blank" style="color:#007aff;">developer.chrome.com/docs/ai/get-started</a></p>
+      <div class="modal-actions">
+        <button class="btn btn-sec" id="wBack">Back</button>
+        <button class="btn" id="wRetry">Retry</button>
+      </div>
+    `);
+    modal.querySelector("#wBack").onclick = intro;
+    modal.querySelector("#wRetry").onclick = check;
+  };
+
+  const download = async (resuming) => {
+    set(`
+      <h2>⬇ Downloading Gemini Nano…</h2>
+      <p style="font-size:13px; color:#6e6e73; margin-bottom:12px;">
+        One-time setup (~2 GB). Keep this tab open.
+      </p>
+      <div style="height:8px; background:#f0f0f3; border-radius:4px; overflow:hidden; margin-bottom:10px;">
+        <div id="wBar" style="height:100%; background:#007aff; width:${resuming ? 10 : 0}%; transition:width 0.3s;"></div>
+      </div>
+      <p id="wPct" style="font-size:12px; color:#6e6e73; text-align:center;">${resuming ? "Resuming…" : "Starting…"}</p>
+    `);
+    try {
+      const session = await nanoCreate({
+        monitor(m) {
+          m.addEventListener("downloadprogress", (e) => {
+            const pct = Math.round((e.loaded || 0) * 100);
+            const bar = document.getElementById("wBar");
+            const lbl = document.getElementById("wPct");
+            if (bar) bar.style.width = pct + "%";
+            if (lbl) lbl.textContent = pct + "%";
+          });
+        }
+      });
+      session.destroy?.();
+      test();
+    } catch (e) {
+      set(`
+        <h2>❌ Download failed</h2>
+        <p style="font-size:13px; color:#ff3b30; word-break:break-word;">${escapeHtml(e.message || String(e))}</p>
+        <div class="modal-actions">
+          <button class="btn btn-sec" id="wBack">Back</button>
+          <button class="btn" id="wRetry">Retry</button>
+        </div>
+      `);
+      modal.querySelector("#wBack").onclick = intro;
+      modal.querySelector("#wRetry").onclick = () => download(false);
+    }
+  };
+
+  const test = async () => {
+    set(`<h2>🧪 Testing…</h2><p style="color:#6e6e73; font-size:13px;">Running a sample parse to make sure structured output works.</p>`);
+    try {
+      const parsed = await parseQuickAddNano("Buy coffee beans tomorrow for Personal");
+      setProvider("nano");
+      set(`
+        <h2>✅ Ready to go</h2>
+        <p style="font-size:13px; color:#6e6e73; margin-bottom:8px;">Sample parsed successfully:</p>
+        <pre style="font-size:11px; background:#f5f5f7; padding:10px; border-radius:8px; overflow:auto;">${escapeHtml(JSON.stringify(parsed, null, 2))}</pre>
+        <p style="font-size:12px; color:#6e6e73; margin-top:10px;">Gemini Nano is now your quick-add provider.</p>
+        <div class="modal-actions">
+          <button class="btn" id="wDone">Done</button>
+        </div>
+      `);
+      modal.querySelector("#wDone").onclick = close;
+    } catch (e) {
+      set(`
+        <h2>⚠ Test failed</h2>
+        <p style="font-size:13px; color:#ff3b30; word-break:break-word;">${escapeHtml(e.message || String(e))}</p>
+        <p style="font-size:12px; color:#6e6e73; margin-top:8px;">
+          Your Chrome version may not support structured output (<code>responseConstraint</code>).
+          Fall back to Claude Haiku with an API key.
+        </p>
+        <div class="modal-actions">
+          <button class="btn" id="wClose2">Close</button>
+        </div>
+      `);
+      modal.querySelector("#wClose2").onclick = close;
+    }
+  };
+
+  intro();
+}
+
+async function handleQuickAdd(text) {
+  const input = document.getElementById("quickAddInput");
+  const status = document.getElementById("quickAddStatus");
+  status.className = "quick-add-status";
+  status.textContent = "Thinking…";
+  input.disabled = true;
+
+  try {
+    const parsed = await parseQuickAdd(text);
+    const { title, date, projectName, status: st } = parsed;
+    if (!title || !date || !projectName) throw new Error("Missing fields from AI response.");
+
+    const match = state.projects.find(p => p.name.toLowerCase() === projectName.toLowerCase());
+    const projectId = match ? addProject(match.name) : addProject(projectName);
+
+    const taskMonth = date.slice(0, 7);
+    if (!state.months.includes(taskMonth)) state.months.push(taskMonth);
+    const proj = state.projects.find(p => p.id === projectId);
+    if (proj && !proj.months.includes(taskMonth)) proj.months.push(taskMonth);
+
+    state.tasks.push({ id: uid(), projectId, title, date, status: STATUSES.includes(st) ? st : "todo" });
+    saveState();
+    render();
+
+    input.value = "";
+    status.className = "quick-add-status success";
+    status.textContent = `✓ ${projectName} · ${date}`;
+    showToast(`Added "${title}" to ${projectName}`, "success");
+  } catch (e) {
+    status.className = "quick-add-status error";
+    status.textContent = "Error";
+    showToast(e.message || "Quick add failed", "error");
+  } finally {
+    input.disabled = false;
+    input.focus();
+    setTimeout(() => { if (status.textContent && !input.value) status.textContent = ""; }, 3500);
+  }
+}
+
+document.getElementById("quickAddInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const v = e.target.value.trim();
+    if (v) handleQuickAdd(v);
+  }
+});
+document.getElementById("settingsBtn").onclick = openSettingsModal;
+
+document.getElementById("appTitle").onclick = () => {
+  const v = prompt("Rename the app:", state.appName);
+  if (v !== null && v.trim()) { state.appName = v.trim(); saveState(); render(); }
+};
+document.getElementById("greetingName").onclick = () => {
+  const v = prompt("What should I call you?", state.userName);
+  if (v !== null && v.trim()) { state.userName = v.trim(); saveState(); render(); }
+};
+
+/* =========================================================
+   GitHub Sync
+   ========================================================= */
+const GH_REPO = "luluguan723/pm";
+const GH_BRANCH = "main";
+const GH_PATH = "data.json";
+const GH_TOKEN_KEY = "pm_gh_token";
+const GH_SHA_KEY = "pm_gh_sha";
+
+function getGhToken() { return localStorage.getItem(GH_TOKEN_KEY) || ""; }
+function setGhToken(t) {
+  if (t) localStorage.setItem(GH_TOKEN_KEY, t);
+  else localStorage.removeItem(GH_TOKEN_KEY);
+}
+
+function setSyncStatus(text, kind = "", autoClearMs = 0) {
+  const el = document.getElementById("headerSync");
+  if (!el) return;
+  el.className = "header-sync" + (kind ? " " + kind : "");
+  el.textContent = text;
+  if (autoClearMs > 0) {
+    clearTimeout(setSyncStatus._t);
+    setSyncStatus._t = setTimeout(() => {
+      if (getGhToken()) setSyncStatus("☁ Synced", "ok");
+      else setSyncStatus("☁ Sync off", "");
+    }, autoClearMs);
+  }
+}
+
+let ghSyncTimer = null;
+let ghSyncing = false;
+let ghSyncPending = false;
+function scheduleGhSync() {
+  if (!getGhToken()) return;
+  clearTimeout(ghSyncTimer);
+  ghSyncTimer = setTimeout(syncToGitHub, 1500);
+}
+
+function utf8ToBase64(s) {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+}
+function base64ToUtf8(b) {
+  const bin = atob(b.replace(/\s/g, ""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+async function ghApi(path, opts = {}) {
+  const token = getGhToken();
+  if (!token) throw new Error("No GitHub token set.");
+  const res = await fetch(`https://api.github.com/repos/${GH_REPO}${path}`, {
+    ...opts,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json",
+      ...(opts.headers || {})
+    }
+  });
+  return res;
+}
+
+async function refreshGhSha() {
+  const res = await ghApi(`/contents/${GH_PATH}?ref=${GH_BRANCH}`);
+  if (res.status === 404) { localStorage.removeItem(GH_SHA_KEY); return null; }
+  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  const data = await res.json();
+  localStorage.setItem(GH_SHA_KEY, data.sha);
+  return data.sha;
+}
+
+async function syncToGitHub() {
+  if (ghSyncing) { ghSyncPending = true; return; }
+  if (!getGhToken()) return;
+  ghSyncing = true;
+  setSyncStatus("☁ Saving…", "busy");
+  try {
+    const content = utf8ToBase64(JSON.stringify(state, null, 2));
+    let sha = localStorage.getItem(GH_SHA_KEY) || null;
+    const doPut = async (sha) => ghApi(`/contents/${GH_PATH}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        message: `Update data — ${new Date().toISOString()}`,
+        content,
+        branch: GH_BRANCH,
+        ...(sha ? { sha } : {})
+      })
+    });
+    let res = await doPut(sha);
+    if (res.status === 409 || res.status === 422) {
+      sha = await refreshGhSha();
+      res = await doPut(sha);
+    }
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`${res.status} ${errText.slice(0, 120)}`);
+    }
+    const data = await res.json();
+    localStorage.setItem(GH_SHA_KEY, data.content.sha);
+    setSyncStatus("☁ Synced", "ok", 1500);
+  } catch (e) {
+    setSyncStatus("⚠ " + (e.message || "Sync failed"), "err", 5000);
+  } finally {
+    ghSyncing = false;
+    if (ghSyncPending) { ghSyncPending = false; scheduleGhSync(); }
+  }
+}
+
+async function loadFromGitHub({ silent = false } = {}) {
+  if (!getGhToken()) { setSyncStatus("☁ Sync off"); return; }
+  if (!silent) setSyncStatus("☁ Loading…", "busy");
+  try {
+    const res = await ghApi(`/contents/${GH_PATH}?ref=${GH_BRANCH}`);
+    if (res.status === 404) {
+      setSyncStatus("☁ No remote yet — will create on next save", "", 3000);
+      // Push current local state up so the file gets created
+      scheduleGhSync();
+      return;
+    }
+    if (!res.ok) throw new Error(`GitHub ${res.status}`);
+    const data = await res.json();
+    localStorage.setItem(GH_SHA_KEY, data.sha);
+    const remoteJson = base64ToUtf8(data.content);
+    const remote = JSON.parse(remoteJson);
+    state = remote;
+    if (!state.appName) state.appName = "📋 Project Manager";
+    if (!state.userName) state.userName = "Kailu";
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    render();
+    setSyncStatus("☁ Synced", "ok", 1500);
+  } catch (e) {
+    setSyncStatus("⚠ " + (e.message || "Load failed"), "err", 5000);
+  }
+}
+
+document.getElementById("headerSync").onclick = openSettingsModal;
+
+/* =========================================================
+   Weather
+   ========================================================= */
+function weatherEmoji(code) {
+  if (code === 0) return "☀️";
+  if (code <= 3) return "⛅";
+  if (code <= 48) return "🌫️";
+  if (code <= 57) return "🌦️";
+  if (code <= 67) return "🌧️";
+  if (code <= 77) return "❄️";
+  if (code <= 82) return "🌦️";
+  if (code <= 86) return "🌨️";
+  if (code <= 99) return "⛈️";
+  return "🌡";
+}
+function loadWeather() {
+  const el = document.getElementById("headerWeather");
+  if (!navigator.geolocation) { el.textContent = "Weather unavailable"; return; }
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const { latitude, longitude } = pos.coords;
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code&temperature_unit=fahrenheit`;
+      const r = await fetch(url);
+      const d = await r.json();
+      const temp = Math.round(d.current.temperature_2m);
+      const code = d.current.weather_code;
+      el.textContent = `${weatherEmoji(code)} ${temp}°F`;
+    } catch (e) {
+      el.textContent = "Weather unavailable";
+    }
+  }, () => {
+    el.textContent = "Weather needs location permission";
+  }, { maximumAge: 10 * 60 * 1000, timeout: 10000 });
+}
+
+render();
+loadWeather();
+if (getGhToken()) loadFromGitHub({ silent: true });
+else setSyncStatus("☁ Sync off");
+</script>
+</body>
+</html>
