@@ -3358,23 +3358,36 @@ function openAuthModal() {
 }
 
 async function initAuth() {
-  const { data: { session } } = await sb.auth.getSession();
+  let session = null;
+  try {
+    const res = await sb.auth.getSession();
+    session = res?.data?.session || null;
+  } catch (e) {
+    console.error("getSession failed:", e);
+  }
   currentUser = session?.user || null;
+
+  try {
+    sb.auth.onAuthStateChange((event, session) => {
+      const prev = currentUser?.id;
+      currentUser = session?.user || null;
+      if (currentUser && currentUser.id !== prev) {
+        loadRemoteState({ silent: true });
+      } else if (!currentUser) {
+        setSyncStatus("☁ Sign in");
+        openAuthModal();
+      }
+    });
+  } catch (e) {
+    console.error("onAuthStateChange setup failed:", e);
+  }
+
   if (currentUser) {
-    await loadRemoteState({ silent: true });
+    loadRemoteState({ silent: true });
   } else {
     setSyncStatus("☁ Sign in");
     openAuthModal();
   }
-  sb.auth.onAuthStateChange((event, session) => {
-    const prev = currentUser?.id;
-    currentUser = session?.user || null;
-    if (currentUser && currentUser.id !== prev) {
-      loadRemoteState({ silent: true });
-    } else if (!currentUser) {
-      setSyncStatus("☁ Sign in");
-    }
-  });
 }
 
 document.getElementById("headerSync").onclick = () => {
@@ -3420,7 +3433,11 @@ function loadWeather() {
 render();
 updateUndoRedoButtons();
 loadWeather();
-initAuth();
+initAuth().catch(e => {
+  console.error("initAuth crashed:", e);
+  setSyncStatus("☁ Sign in");
+  openAuthModal();
+});
 </script>
 </body>
 </html>
