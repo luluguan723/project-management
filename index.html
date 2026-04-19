@@ -240,7 +240,7 @@
     font-size: 13px;
     line-height: 1.3;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 4px;
     cursor: grab;
   }
@@ -337,7 +337,7 @@
   .task-status {
     cursor: pointer;
     font-size: 11px;
-    line-height: 1;
+    line-height: 1.3;
     flex-shrink: 0;
     background: transparent;
     border: none;
@@ -618,12 +618,31 @@
   .ctx-item.danger { color: #ff3b30; }
   .task.task-drop-above { box-shadow: 0 -2px 0 #007aff; }
   .task.task-drop-below { box-shadow: 0 2px 0 #007aff; }
-  .unfinished-view { max-width: 820px; margin: 0 auto; }
+  .unfinished-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    background: #fff;
+    border-left: 1px solid #e5e5ea;
+    z-index: 9;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 16px 20px 16px;
+    overflow-y: auto;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.04);
+  }
+  body.panel-open header { padding-right: 396px; }
+  body.panel-open main { padding-right: 400px; }
+  #unfinishedToggle.active { background: #1d1d1f; color: #fff; border-color: #1d1d1f; }
   .unfinished-head {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 4px 4px 14px 4px;
+    padding: 4px 0 14px 0;
+    border-bottom: 1px solid #e5e5ea;
+    margin-bottom: 10px;
   }
   .unfinished-title { font-size: 18px; font-weight: 600; }
   .unfinished-sub { font-size: 12px; color: #6e6e73; margin-top: 2px; }
@@ -1428,11 +1447,28 @@ function unfinishedTasks() {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function renderUnfinished() {
-  const wrap = document.createElement("div");
-  wrap.className = "unfinished-view";
+function renderUnfinishedPanel() {
+  const existing = document.getElementById("unfinishedPanel");
+  const toggleBtn = document.getElementById("unfinishedToggle");
+  const open = !!state.unfinishedPanelOpen;
+  document.body.classList.toggle("panel-open", open);
 
   const items = unfinishedTasks();
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("active", open);
+    toggleBtn.textContent = `${open ? "☒" : "☐"} Unfinished${items.length ? ` (${items.length})` : ""}`;
+  }
+
+  if (!open) {
+    if (existing) existing.remove();
+    return;
+  }
+
+  const panel = existing || document.createElement("aside");
+  panel.id = "unfinishedPanel";
+  panel.className = "unfinished-panel";
+  panel.innerHTML = "";
+
   const today = isoDate(new Date());
   const overdueCount = items.filter(t => t.date < today).length;
 
@@ -1440,74 +1476,75 @@ function renderUnfinished() {
   head.className = "unfinished-head";
   head.innerHTML = `
     <div>
-      <div class="unfinished-title">Unfinished tasks</div>
+      <div class="unfinished-title">Unfinished</div>
       <div class="unfinished-sub">${items.length} open · ${overdueCount} overdue</div>
     </div>
-    <div style="display:flex; gap:8px;">
+    <div style="display:flex; gap:6px;">
       <button class="btn btn-sec" id="aiTidyBtn" title="Use AI to find fuzzy duplicates that were already completed">✨ AI tidy</button>
+      <button class="nav-arrow" id="closeUnfinishedBtn" title="Close panel">×</button>
     </div>
   `;
-  wrap.appendChild(head);
+  panel.appendChild(head);
 
   if (items.length === 0) {
     const empty = document.createElement("div");
     empty.className = "unfinished-empty";
     empty.textContent = "🎉 Nothing unfinished. You're caught up.";
-    wrap.appendChild(empty);
-    main.appendChild(wrap);
-    return;
+    panel.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "unfinished-list";
+    let lastBucket = null;
+    items.forEach(t => {
+      const bucket = t.date < today ? "Overdue" : (t.date === today ? "Today" : "Upcoming");
+      if (bucket !== lastBucket) {
+        lastBucket = bucket;
+        const h = document.createElement("div");
+        h.className = "unfinished-bucket";
+        h.textContent = bucket;
+        list.appendChild(h);
+      }
+      const proj = state.projects.find(p => p.id === t.projectId);
+      const row = document.createElement("div");
+      row.className = "unfinished-row";
+      const olderInstances = seriesPeers(t).filter(p => p.date < t.date && p.status !== "done").length;
+      const seriesNote = olderInstances > 0 ? ` · carried ${olderInstances + 1}×` : "";
+      row.innerHTML = `
+        <span class="unf-color" style="background:${proj ? proj.color : "#ccc"}"></span>
+        <span class="unf-status">${STATUS_EMOJI[t.status]}</span>
+        <span class="unf-title"></span>
+        <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}${seriesNote}</span>
+        <button class="unf-go" title="Move to today">→ today</button>
+      `;
+      row.querySelector(".unf-title").textContent = t.title;
+      row.querySelector(".unf-status").onclick = (e) => { e.stopPropagation(); cycleStatus(t.id); };
+      row.querySelector(".unf-go").onclick = (e) => { e.stopPropagation(); moveTasks([t.id], t.projectId, today, false); };
+      row.onclick = () => {
+        state.anchorDate = t.date;
+        state.view = "day";
+        const mk = t.date.slice(0, 7);
+        if (!state.months.includes(mk)) state.months.push(mk);
+        state.activeMonth = mk;
+        saveState();
+        render();
+      };
+      list.appendChild(row);
+    });
+    panel.appendChild(list);
   }
 
-  const list = document.createElement("div");
-  list.className = "unfinished-list";
+  if (!existing) document.body.appendChild(panel);
 
-  let lastBucket = null;
-  items.forEach(t => {
-    const bucket = t.date < today ? "Overdue" : (t.date === today ? "Today" : "Upcoming");
-    if (bucket !== lastBucket) {
-      lastBucket = bucket;
-      const h = document.createElement("div");
-      h.className = "unfinished-bucket";
-      h.textContent = bucket;
-      list.appendChild(h);
-    }
-    const proj = state.projects.find(p => p.id === t.projectId);
-    const row = document.createElement("div");
-    row.className = "unfinished-row";
-    const olderInstances = seriesPeers(t).filter(p => p.date < t.date && p.status !== "done").length;
-    const seriesNote = olderInstances > 0 ? ` · carried ${olderInstances + 1}×` : "";
-    row.innerHTML = `
-      <span class="unf-color" style="background:${proj ? proj.color : "#ccc"}"></span>
-      <span class="unf-status" data-act="cycle">${STATUS_EMOJI[t.status]}</span>
-      <span class="unf-title"></span>
-      <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}${seriesNote}</span>
-      <button class="unf-go" title="Move to today">→ today</button>
-    `;
-    row.querySelector(".unf-title").textContent = t.title;
-    row.querySelector(".unf-status").onclick = (e) => {
-      e.stopPropagation();
-      cycleStatus(t.id);
-    };
-    row.querySelector(".unf-go").onclick = (e) => {
-      e.stopPropagation();
-      moveTasks([t.id], t.projectId, today, false);
-    };
-    row.onclick = () => {
-      state.anchorDate = t.date;
-      state.view = "day";
-      const mk = t.date.slice(0, 7);
-      if (!state.months.includes(mk)) state.months.push(mk);
-      state.activeMonth = mk;
-      saveState();
-      render();
-    };
-    list.appendChild(row);
-  });
+  const tidyBtn = document.getElementById("aiTidyBtn");
+  if (tidyBtn) tidyBtn.onclick = () => aiTidyUnfinished();
+  const closeBtn = document.getElementById("closeUnfinishedBtn");
+  if (closeBtn) closeBtn.onclick = () => toggleUnfinishedPanel(false);
+}
 
-  wrap.appendChild(list);
-  main.appendChild(wrap);
-
-  document.getElementById("aiTidyBtn").onclick = () => aiTidyUnfinished();
+function toggleUnfinishedPanel(force) {
+  state.unfinishedPanelOpen = typeof force === "boolean" ? force : !state.unfinishedPanelOpen;
+  saveState();
+  renderUnfinishedPanel();
 }
 
 async function aiTidyUnfinished() {
@@ -1698,8 +1735,8 @@ function buildGroupEl(gid, members, proj) {
   const ungroupBtn = document.createElement("button");
   ungroupBtn.className = "ungroup-btn";
   ungroupBtn.textContent = "×";
-  ungroupBtn.title = "Disband group";
-  ungroupBtn.onclick = (e) => { e.stopPropagation(); ungroupGroup(gid); };
+  ungroupBtn.title = "Delete group and all tasks in it";
+  ungroupBtn.onclick = (e) => { e.stopPropagation(); deleteGroup(gid); };
   header.appendChild(ungroupBtn);
   wrap.appendChild(header);
   members.forEach(t => wrap.appendChild(taskEl(t, proj)));
@@ -1804,7 +1841,7 @@ function taskEl(t, proj) {
   del.className = "task-act-btn";
   del.textContent = "×";
   del.title = "Delete";
-  del.onclick = (e) => { e.stopPropagation(); if (confirm("Delete this task?")) deleteTask(t.id); };
+  del.onclick = (e) => { e.stopPropagation(); deleteTask(t.id); };
   actions.appendChild(del);
   el.appendChild(actions);
 
@@ -1904,6 +1941,13 @@ function renameGroup(groupId, newName) {
 
 function ungroupGroup(groupId) {
   state.tasks.forEach(t => { if (t.groupId === groupId) delete t.groupId; });
+  state.groups = (state.groups || []).filter(g => g.id !== groupId);
+  saveState();
+  render();
+}
+
+function deleteGroup(groupId) {
+  state.tasks = state.tasks.filter(t => t.groupId !== groupId);
   state.groups = (state.groups || []).filter(g => g.id !== groupId);
   saveState();
   render();
@@ -2260,6 +2304,7 @@ document.getElementById("viewSelect").onchange = (e) => {
 
 document.getElementById("undoBtn").onclick = () => undo();
 document.getElementById("redoBtn").onclick = () => redo();
+document.getElementById("unfinishedToggle").onclick = () => toggleUnfinishedPanel();
 
 document.addEventListener("keydown", (e) => {
   if (!(e.metaKey || e.ctrlKey)) return;
