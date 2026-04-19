@@ -4,6 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Project Manager</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -50,23 +52,23 @@
   }
   .month-tab:hover { color: #1d1d1f; }
   .month-tab.active { color: #1d1d1f; border-bottom-color: #1d1d1f; background: #e4e4e9; }
-  .view-switcher {
-    display: flex;
+  .view-select {
+    padding: 7px 28px 7px 12px;
     background: #f0f0f3;
+    border: 1px solid #d2d2d7;
     border-radius: 8px;
-    padding: 3px;
-  }
-  .view-btn {
-    padding: 6px 14px;
-    background: transparent;
-    border: none;
-    border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
     color: #1d1d1f;
+    font-family: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%231d1d1f' d='M0 0l5 6 5-6z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
   }
-  .view-btn.active { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .view-select:hover { background-color: #e4e4e9; }
   .btn {
     padding: 7px 14px;
     background: #007aff;
@@ -102,7 +104,8 @@
     cursor: pointer;
     font-size: 14px;
   }
-  .nav-arrow:hover { background: #f0f0f3; }
+  .nav-arrow:hover:not(:disabled) { background: #f0f0f3; }
+  .nav-arrow:disabled { opacity: 0.35; cursor: default; }
   main { padding: 20px; }
 
   /* Week grid */
@@ -128,12 +131,7 @@
     border-right: 1px solid #e5e5ea;
   }
   .week-header-cell:last-child { border-right: none; }
-  .week-header-cell.today {
-    color: #007aff;
-    border-top: 2px solid #39ff14;
-    border-left: 2px solid #39ff14;
-    border-right: 2px solid #39ff14;
-  }
+  .week-header-cell.today { color: #007aff; }
   .week-header-cell.project-col-header {
     text-align: left;
     padding-left: 16px;
@@ -148,8 +146,41 @@
     min-height: 90px;
     width: max-content;
     min-width: 100%;
+    position: relative;
   }
   .project-row:last-child { border-bottom: none; }
+  .project-row.dragging-row { opacity: 0.5; }
+  .project-row.row-drop-above { box-shadow: 0 -2px 0 #007aff inset, 0 -3px 0 #007aff; }
+  .project-row.row-drop-below { box-shadow: 0 2px 0 #007aff inset, 0 3px 0 #007aff; }
+  .drag-handle {
+    cursor: grab;
+    font-size: 14px;
+    color: rgba(255,255,255,0.9);
+    padding: 2px 2px;
+    user-select: none;
+    flex-shrink: 0;
+    line-height: 1;
+    letter-spacing: -2px;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .row-resize-handle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -3px;
+    height: 6px;
+    cursor: ns-resize;
+    z-index: 4;
+  }
+  .row-resize-handle:hover { background: rgba(0,122,255,0.2); }
+  .add-project-label {
+    justify-content: center;
+    color: #007aff !important;
+    background: #fafafa !important;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .add-project-label:hover { background: #f0f7ff !important; }
   .project-label {
     padding: 10px 12px;
     border-right: 1px solid #e5e5ea;
@@ -193,7 +224,7 @@
   }
   .project-del:hover { color: #ff3b30; }
   .day-cell {
-    padding: 4px 2px;
+    padding: 4px 2px 10px 2px;
     border-right: 1px solid #e5e5ea;
     display: flex;
     flex-direction: column;
@@ -201,28 +232,101 @@
     min-height: 90px;
   }
   .day-cell:last-child { border-right: none; }
-  .day-cell.today {
-    background: #f0f7ff;
-    border-left: 2px solid #39ff14;
-    border-right: 2px solid #39ff14;
-  }
-  .project-row:last-child .day-cell.today {
-    border-bottom: 2px solid #39ff14;
-  }
+  .day-cell.today { background: #f0f7ff; }
+  .project-row.empty-row, .project-row.empty-row .day-cell { min-height: 36px; }
   .task {
     padding: 1px 4px;
-    font-size: 11px;
+    margin-bottom: 1px;
+    font-size: 13px;
     line-height: 1.3;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 4px;
     cursor: grab;
-    border-left: 3px solid #ccc;
   }
+  .task-group { margin-bottom: 1px; }
+  .task-group:last-child { margin-bottom: 0; }
+  .task-group-header .name-input {
+    flex: 1;
+    font: inherit;
+    color: inherit;
+    background: #fff;
+    border: 1px solid #007aff;
+    border-radius: 3px;
+    padding: 1px 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    outline: none;
+  }
+  .task-group-header .name.placeholder { color: #c7c7cc; font-style: italic; text-transform: none; letter-spacing: 0; }
   .task:active { cursor: grabbing; }
   .task.done { opacity: 0.55; }
   .task.done .task-title { text-decoration: line-through; }
+  .task.done-later { opacity: 0.45; }
+  .task.done-later .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; }
+  .task.in-series .task-title::before { content: "↺ "; color: #8e8e93; font-size: 10px; }
   .task.dragging { opacity: 0.4; }
+  .task.selected {
+    outline: 2px solid #007aff;
+    outline-offset: -1px;
+    background: rgba(0,122,255,0.08);
+    border-radius: 3px;
+  }
+  .task-group {
+    border: 1px solid #d2d2d7;
+    border-radius: 5px;
+    padding: 3px 3px 1px 3px;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+  }
+  .task-group-header {
+    font-size: 10px;
+    font-weight: 600;
+    color: #6e6e73;
+    padding: 1px 2px;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .task-group-header .name { cursor: text; flex: 1; }
+  .task-group-header .ungroup-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #6e6e73;
+    font-size: 11px;
+    padding: 0 2px;
+  }
+  .task-group-header .ungroup-btn:hover { color: #ff3b30; }
+  .selection-bar {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1d1d1f;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    z-index: 250;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .selection-bar .sel-count { font-weight: 600; }
+  .selection-bar .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  .selection-bar .btn.btn-sec {
+    background: #3a3a3c;
+    color: #fff;
+  }
   .day-cell.drop-target,
   .month-day.drop-target,
   .day-project-block.drop-target {
@@ -232,7 +336,7 @@
   }
   .task-status {
     cursor: pointer;
-    font-size: 14px;
+    font-size: 11px;
     line-height: 1;
     flex-shrink: 0;
     background: transparent;
@@ -469,23 +573,103 @@
   .title-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   #appTitle { cursor: text; }
   #appTitle:hover { opacity: 0.7; }
-  .greeting { font-size: 13px; color: #6e6e73; }
-  .greeting .name { cursor: text; color: #1d1d1f; font-weight: 500; }
-  .greeting .name:hover { opacity: 0.7; text-decoration: underline; }
   .header-info {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
     font-size: 13px;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   .header-date { font-weight: 500; color: #1d1d1f; }
-  .header-weather { color: #6e6e73; font-size: 12px; }
-  .header-sync { color: #6e6e73; font-size: 11px; cursor: pointer; }
+  .header-weather { color: #6e6e73; }
+  .header-sync { color: #6e6e73; cursor: pointer; font-size: 14px; }
   .header-sync.ok { color: #34c759; }
   .header-sync.err { color: #ff3b30; }
   .header-sync.busy { color: #007aff; }
+  .header-sep { color: #c7c7cc; user-select: none; }
+  .ctx-menu {
+    position: fixed;
+    background: #fff;
+    border: 1px solid #d2d2d7;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding: 4px;
+    z-index: 300;
+    min-width: 160px;
+  }
+  .ctx-item {
+    display: block;
+    width: 100%;
+    padding: 7px 12px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: 4px;
+    color: #1d1d1f;
+    font-family: inherit;
+  }
+  .ctx-item:hover:not(:disabled) { background: #f0f0f3; }
+  .ctx-item:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ctx-item.danger { color: #ff3b30; }
+  .task.task-drop-above { box-shadow: 0 -2px 0 #007aff; }
+  .task.task-drop-below { box-shadow: 0 2px 0 #007aff; }
+  .unfinished-view { max-width: 820px; margin: 0 auto; }
+  .unfinished-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 4px 14px 4px;
+  }
+  .unfinished-title { font-size: 18px; font-weight: 600; }
+  .unfinished-sub { font-size: 12px; color: #6e6e73; margin-top: 2px; }
+  .unfinished-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6e6e73;
+    font-size: 14px;
+  }
+  .unfinished-list { display: flex; flex-direction: column; gap: 4px; }
+  .unfinished-bucket {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6e6e73;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin: 14px 4px 4px 4px;
+  }
+  .unfinished-row {
+    display: grid;
+    grid-template-columns: 4px 22px 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e5e5ea;
+    border-radius: 8px;
+    padding: 8px 12px 8px 0;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .unfinished-row:hover { background: #f5f5f7; border-color: #d2d2d7; }
+  .unf-color { display: block; align-self: stretch; border-radius: 8px 0 0 8px; }
+  .unf-status { font-size: 14px; cursor: pointer; text-align: center; }
+  .unf-title { font-size: 13px; color: #1d1d1f; }
+  .unf-meta { font-size: 11px; color: #6e6e73; }
+  .unf-go {
+    background: #f0f0f3;
+    border: 1px solid #d2d2d7;
+    color: #1d1d1f;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .unf-go:hover { background: #e4e4e9; }
 </style>
 </head>
 <body>
@@ -494,36 +678,33 @@
   <div class="top-row">
     <div class="title-block">
       <h1 id="appTitle" title="Click to rename">📋 Project Manager</h1>
-      <div class="greeting">Hi, <span class="name" id="greetingName" title="Click to rename">Kailu</span> 👋</div>
     </div>
     <div class="header-info">
-      <div class="header-date" id="headerDate"></div>
-      <div class="header-weather" id="headerWeather">Loading weather…</div>
-      <div class="header-sync" id="headerSync" title="GitHub sync (click for settings)">☁ Sync off</div>
+      <span class="header-date" id="headerDate"></span>
+      <span class="header-sep">·</span>
+      <span class="header-weather" id="headerWeather">Loading…</span>
+      <span class="header-sep">·</span>
+      <span class="header-sync" id="headerSync" title="GitHub sync status. When OFF, your data lives only in this browser's local storage. Add a GitHub Personal Access Token in ⚙ Settings to back up and sync across devices via a private repo.">☁</span>
     </div>
-    <div style="display:flex; gap:10px; align-items:center;">
-      <div class="view-switcher">
-        <button class="view-btn" data-view="day">Day</button>
-        <button class="view-btn active" data-view="week">Week</button>
-        <button class="view-btn" data-view="month">Month</button>
-      </div>
-      <button class="btn" id="newTaskBtn">+ Task</button>
-      <button class="btn btn-sec" id="newProjectBtn">+ Project</button>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="nav-arrow" id="undoBtn" title="Undo (⌘Z)">↶</button>
+      <button class="nav-arrow" id="redoBtn" title="Redo (⌘⇧Z)">↷</button>
+      <select id="viewSelect" class="view-select" title="Change view">
+        <option value="day">Day</option>
+        <option value="week" selected>Week</option>
+        <option value="month">Month</option>
+      </select>
+      <button class="nav-arrow" id="unfinishedToggle" title="Toggle unfinished panel">☐ Unfinished</button>
+      <button class="nav-arrow" id="todayBtn">Today</button>
+      <button class="gear-btn" id="settingsBtn" title="Settings">⚙</button>
     </div>
   </div>
   <div class="month-tabs" id="monthTabs"></div>
-  <div class="nav-row">
-    <button class="nav-arrow" id="prevBtn">‹</button>
-    <button class="nav-arrow" id="todayBtn">Today</button>
-    <button class="nav-arrow" id="nextBtn">›</button>
-    <span class="period-label" id="periodLabel"></span>
-  </div>
   <div class="quick-add-row">
     <span class="quick-add-icon">✨</span>
     <input class="quick-add-input" id="quickAddInput"
       placeholder="Quick add with AI — e.g. &quot;finish slides tomorrow for Marketing&quot; (press Enter)" />
     <span class="quick-add-status" id="quickAddStatus"></span>
-    <button class="gear-btn" id="settingsBtn" title="API key settings">⚙</button>
   </div>
 </header>
 
@@ -548,6 +729,8 @@ function loadState() {
       const parsed = JSON.parse(raw);
       if (!parsed.appName) parsed.appName = "📋 Project Manager";
       if (!parsed.userName) parsed.userName = "Kailu";
+      if (!parsed.projectHeights) parsed.projectHeights = {};
+      if (!parsed.groups) parsed.groups = [];
       return parsed;
     }
   } catch (e) {}
@@ -560,14 +743,63 @@ function loadState() {
     anchorDate: isoDate(new Date()),
     appName: "📋 Project Manager",
     userName: "Kailu",
+    projectHeights: {},
+    groups: [],
   };
 }
+
+const selectedTaskIds = new Set();
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 50;
+
 function saveState() {
+  const snap = JSON.stringify(state);
+  if (undoStack[undoStack.length - 1] !== snap) {
+    undoStack.push(snap);
+    if (undoStack.length > MAX_UNDO + 1) undoStack.shift();
+    redoStack.length = 0;
+  }
+  localStorage.setItem(STORAGE_KEY, snap);
+  scheduleSync();
+  updateUndoRedoButtons();
+}
+
+function undo() {
+  if (undoStack.length < 2) { showToast("Nothing to undo"); return; }
+  const current = undoStack.pop();
+  redoStack.push(current);
+  state = JSON.parse(undoStack[undoStack.length - 1]);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  scheduleGhSync();
+  scheduleSync();
+  selectedTaskIds.clear();
+  render();
+  updateUndoRedoButtons();
+  showToast("Undone");
+}
+
+function redo() {
+  if (redoStack.length === 0) { showToast("Nothing to redo"); return; }
+  const snap = redoStack.pop();
+  undoStack.push(snap);
+  state = JSON.parse(snap);
+  localStorage.setItem(STORAGE_KEY, snap);
+  scheduleSync();
+  selectedTaskIds.clear();
+  render();
+  updateUndoRedoButtons();
+  showToast("Redone");
+}
+
+function updateUndoRedoButtons() {
+  const u = document.getElementById("undoBtn");
+  const r = document.getElementById("redoBtn");
+  if (u) u.disabled = undoStack.length < 2;
+  if (r) r.disabled = redoStack.length === 0;
 }
 
 let state = loadState();
+undoStack.push(JSON.stringify(state));
 
 /* =========================================================
    Date utils
@@ -613,6 +845,42 @@ function tasksOnDate(dateStr) {
 }
 function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 
+function normTitle(s) { return String(s || "").trim().toLowerCase().replace(/\s+/g, " "); }
+
+function seriesPeers(t) {
+  if (!t) return [];
+  const norm = normTitle(t.title);
+  return state.tasks.filter(x =>
+    x.id !== t.id &&
+    x.projectId === t.projectId &&
+    (
+      (t.seriesId && x.seriesId === t.seriesId) ||
+      (norm && normTitle(x.title) === norm)
+    )
+  );
+}
+
+function attachToSeries(t) {
+  const peers = seriesPeers(t);
+  if (peers.length === 0) {
+    if (t.seriesId) {
+      const stillUsed = state.tasks.some(x => x.id !== t.id && x.seriesId === t.seriesId);
+      if (!stillUsed) delete t.seriesId;
+    }
+    return;
+  }
+  let sid = t.seriesId || peers.find(p => p.seriesId)?.seriesId;
+  if (!sid) sid = uid();
+  t.seriesId = sid;
+  peers.forEach(p => { p.seriesId = sid; });
+}
+
+function laterDoneInSeries(t) {
+  if (t.status === "done") return null;
+  const peers = seriesPeers(t);
+  return peers.find(p => p.status === "done" && p.date > t.date) || null;
+}
+
 function addProject(name, color) {
   const existing = state.projects.find(p => p.name.toLowerCase() === name.toLowerCase());
   if (existing) {
@@ -636,7 +904,9 @@ function deleteProject(id) {
   render();
 }
 function addTask({ projectId, title, date }) {
-  state.tasks.push({ id: uid(), projectId, title, date, status: "todo" });
+  const t = { id: uid(), projectId, title, date, status: "todo" };
+  state.tasks.push(t);
+  attachToSeries(t);
   saveState();
 }
 function cycleStatus(taskId) {
@@ -652,26 +922,51 @@ function deleteTask(taskId) {
   saveState();
   render();
 }
-function moveTask(taskId, newProjectId, newDate) {
-  const t = state.tasks.find(x => x.id === taskId);
-  if (!t) return;
-  if (!newProjectId) newProjectId = t.projectId;
-  if (!newDate) newDate = t.date;
-  if (t.projectId === newProjectId && t.date === newDate) return;
-  t.projectId = newProjectId;
-  t.date = newDate;
-  const newMonth = newDate.slice(0, 7);
-  if (!state.months.includes(newMonth)) state.months.push(newMonth);
-  const proj = state.projects.find(p => p.id === newProjectId);
-  if (proj && !proj.months.includes(newMonth)) proj.months.push(newMonth);
+function moveTasks(ids, newProjectId, newDate, duplicate) {
+  let changed = false;
+  ids.forEach(id => {
+    const t = state.tasks.find(x => x.id === id);
+    if (!t) return;
+    const pid = newProjectId || t.projectId;
+    const date = newDate || t.date;
+    if (duplicate) {
+      const copy = { ...t, id: uid(), projectId: pid, date };
+      delete copy.groupId;
+      state.tasks.push(copy);
+      changed = true;
+    } else {
+      const sameCell = t.projectId === pid && t.date === date;
+      if (sameCell && !t.groupId) return;
+      t.projectId = pid;
+      t.date = date;
+      delete t.groupId;
+      changed = true;
+    }
+    const m = date.slice(0, 7);
+    if (!state.months.includes(m)) state.months.push(m);
+    const proj = state.projects.find(p => p.id === pid);
+    if (proj && !proj.months.includes(m)) proj.months.push(m);
+  });
+  if (!changed) return;
+  pruneEmptyGroups();
   saveState();
   render();
 }
 
+function readDragIds(e) {
+  const s = e.dataTransfer.getData("text/plain");
+  if (!s) return [];
+  if (s[0] === "[") {
+    try { const v = JSON.parse(s); if (Array.isArray(v)) return v.filter(x => typeof x === "string"); } catch {}
+  }
+  return [s];
+}
+
 function attachDropZone(el, getTarget) {
   el.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer.types.includes("text/plain")) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = e.altKey ? "copy" : "move";
     el.classList.add("drop-target");
   });
   el.addEventListener("dragleave", (e) => {
@@ -681,11 +976,50 @@ function attachDropZone(el, getTarget) {
     e.preventDefault();
     e.stopPropagation();
     el.classList.remove("drop-target");
-    const taskId = e.dataTransfer.getData("text/plain");
-    if (!taskId) return;
-    const { projectId, date } = getTarget(taskId);
-    moveTask(taskId, projectId, date);
+    const ids = readDragIds(e);
+    if (ids.length === 0) return;
+    const { projectId, date } = getTarget(ids[0]);
+    moveTasks(ids, projectId, date, e.altKey);
   });
+}
+
+function reorderProject(srcId, destId, mode) {
+  if (srcId === destId) return;
+  const srcIdx = state.projects.findIndex(p => p.id === srcId);
+  if (srcIdx < 0) return;
+  const [srcProj] = state.projects.splice(srcIdx, 1);
+  const newDestIdx = state.projects.findIndex(p => p.id === destId);
+  if (newDestIdx < 0) {
+    state.projects.push(srcProj);
+  } else {
+    const insertAt = newDestIdx + (mode === "after" ? 1 : 0);
+    state.projects.splice(insertAt, 0, srcProj);
+  }
+  saveState();
+  render();
+}
+
+function startRowResize(e, projId, row) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startY = e.clientY;
+  const startH = row.getBoundingClientRect().height;
+  const cells = row.querySelectorAll(".day-cell, .project-label");
+  const onMove = (ev) => {
+    const newH = Math.max(40, startH + (ev.clientY - startY));
+    row.style.minHeight = newH + "px";
+    cells.forEach(el => el.style.minHeight = newH + "px");
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    const finalH = Math.round(row.getBoundingClientRect().height);
+    if (!state.projectHeights) state.projectHeights = {};
+    state.projectHeights[projId] = finalH;
+    saveState();
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
 }
 
 function moveTaskToNextDay(taskId) {
@@ -728,14 +1062,16 @@ function render() {
   renderViewSwitcher();
   renderPeriodLabel();
   main.innerHTML = "";
+  if (state.view === "unfinished") state.view = "week";
   if (state.view === "day") renderDay();
   else if (state.view === "week") renderWeek();
   else renderMonth();
+  renderUnfinishedPanel();
+  updateSelectionBar();
 }
 
 function renderHeaderIdentity() {
   document.getElementById("appTitle").textContent = state.appName;
-  document.getElementById("greetingName").textContent = state.userName;
   const now = new Date();
   document.getElementById("headerDate").textContent =
     now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
@@ -778,12 +1114,12 @@ function renderMonthTabs() {
 }
 
 function renderViewSwitcher() {
-  document.querySelectorAll(".view-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.view === state.view);
-  });
+  const sel = document.getElementById("viewSelect");
+  if (sel) sel.value = state.view;
 }
 
 function renderPeriodLabel() {
+  if (!periodLabel) return;
   const d = parseISO(state.anchorDate);
   if (state.view === "day") {
     periodLabel.textContent = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -837,12 +1173,30 @@ function renderWeek() {
   projects.forEach(proj => {
     const row = document.createElement("div");
     row.className = "project-row";
+    const hasTasks = state.tasks.some(t => t.projectId === proj.id && days.includes(t.date));
+    if (!hasTasks) row.classList.add("empty-row");
     row.style.gridTemplateColumns = cols;
+    const savedH = state.projectHeights && state.projectHeights[proj.id];
+    if (savedH) row.style.minHeight = savedH + "px";
 
     const label = document.createElement("div");
     label.className = "project-label";
     label.style.background = proj.color;
     label.title = "Click to change color";
+
+    const dragHandle = document.createElement("span");
+    dragHandle.className = "drag-handle";
+    dragHandle.textContent = "⋮⋮";
+    dragHandle.title = "Drag to reorder row";
+    dragHandle.draggable = true;
+    dragHandle.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("application/x-pm-project", proj.id);
+      e.dataTransfer.setData("text/pm-project", proj.id);
+      e.dataTransfer.effectAllowed = "move";
+      row.classList.add("dragging-row");
+    });
+    dragHandle.addEventListener("dragend", () => row.classList.remove("dragging-row"));
+    label.appendChild(dragHandle);
 
     const pill = document.createElement("span");
     pill.className = "project-name-pill";
@@ -858,23 +1212,76 @@ function renderWeek() {
     label.appendChild(del);
 
     label.onclick = (e) => {
-      if (e.target.closest(".project-del") || e.target.closest(".project-name-pill")) return;
+      if (e.target.closest(".project-del") || e.target.closest(".project-name-pill") || e.target.closest(".drag-handle")) return;
       editProjectColor(proj.id);
     };
     pill.onclick = (e) => { e.stopPropagation(); editProjectColor(proj.id); };
+
+    label.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes("application/x-pm-project") &&
+          !e.dataTransfer.types.includes("text/pm-project")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const rect = label.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      row.classList.toggle("row-drop-above", isAbove);
+      row.classList.toggle("row-drop-below", !isAbove);
+    });
+    label.addEventListener("dragleave", (e) => {
+      if (!label.contains(e.relatedTarget)) {
+        row.classList.remove("row-drop-above", "row-drop-below");
+      }
+    });
+    label.addEventListener("drop", (e) => {
+      const srcId = e.dataTransfer.getData("application/x-pm-project") ||
+                    e.dataTransfer.getData("text/pm-project");
+      if (!srcId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = label.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      row.classList.remove("row-drop-above", "row-drop-below");
+      reorderProject(srcId, proj.id, isAbove ? "before" : "after");
+    });
+
     row.appendChild(label);
 
     days.forEach(dStr => {
       const cell = document.createElement("div");
       cell.className = "day-cell" + (isToday(dStr) ? " today" : "");
       cell.style.cursor = "text";
-      tasksFor(proj.id, dStr).forEach(t => cell.appendChild(taskEl(t, proj)));
+      if (savedH) cell.style.minHeight = savedH + "px";
+      renderTasksInto(cell, tasksFor(proj.id, dStr), proj);
       cell.onclick = () => startInlineAdd(cell, proj.id, dStr);
       attachDropZone(cell, () => ({ projectId: proj.id, date: dStr }));
       row.appendChild(cell);
     });
+
+    const resizeHandle = document.createElement("div");
+    resizeHandle.className = "row-resize-handle";
+    resizeHandle.title = "Drag to resize row";
+    resizeHandle.addEventListener("pointerdown", (e) => startRowResize(e, proj.id, row));
+    row.appendChild(resizeHandle);
+
     grid.appendChild(row);
   });
+
+  const addRow = document.createElement("div");
+  addRow.className = "project-row";
+  addRow.style.gridTemplateColumns = cols;
+  const addLabel = document.createElement("div");
+  addLabel.className = "project-label add-project-label";
+  addLabel.textContent = "+ Add project";
+  addLabel.onclick = openProjectModal;
+  addRow.appendChild(addLabel);
+  days.forEach(() => {
+    const cell = document.createElement("div");
+    cell.className = "day-cell";
+    cell.style.minHeight = "44px";
+    addRow.appendChild(cell);
+  });
+  addRow.style.minHeight = "44px";
+  grid.appendChild(addRow);
 
   main.appendChild(grid);
 
@@ -884,7 +1291,7 @@ function renderWeek() {
     if (saved != null) {
       grid.scrollLeft = saved;
     } else if (todayIdx >= 0) {
-      grid.scrollLeft = Math.max(0, todayIdx * DAY_COL_W - DAY_COL_W);
+      grid.scrollLeft = Math.max(0, todayIdx * DAY_COL_W);
     }
   });
   grid.addEventListener("scroll", () => {
@@ -925,7 +1332,7 @@ function renderDay() {
     block.querySelector(".project-dot").onclick = (e) => { e.stopPropagation(); editProjectColor(proj.id); };
     const tasksWrap = document.createElement("div");
     tasksWrap.className = "day-tasks";
-    tasks.forEach(t => tasksWrap.appendChild(taskEl(t, proj)));
+    renderTasksInto(tasksWrap, tasks, proj);
     if (tasks.length === 0) {
       const ph = document.createElement("div");
       ph.style.cssText = "color:#c7c7cc; font-size:12px; cursor:text; padding:4px 0;";
@@ -1015,6 +1422,171 @@ function renderMonth() {
   main.appendChild(wrap);
 }
 
+function unfinishedTasks() {
+  return state.tasks
+    .filter(t => t.status !== "done" && !laterDoneInSeries(t))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function renderUnfinished() {
+  const wrap = document.createElement("div");
+  wrap.className = "unfinished-view";
+
+  const items = unfinishedTasks();
+  const today = isoDate(new Date());
+  const overdueCount = items.filter(t => t.date < today).length;
+
+  const head = document.createElement("div");
+  head.className = "unfinished-head";
+  head.innerHTML = `
+    <div>
+      <div class="unfinished-title">Unfinished tasks</div>
+      <div class="unfinished-sub">${items.length} open · ${overdueCount} overdue</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-sec" id="aiTidyBtn" title="Use AI to find fuzzy duplicates that were already completed">✨ AI tidy</button>
+    </div>
+  `;
+  wrap.appendChild(head);
+
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "unfinished-empty";
+    empty.textContent = "🎉 Nothing unfinished. You're caught up.";
+    wrap.appendChild(empty);
+    main.appendChild(wrap);
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "unfinished-list";
+
+  let lastBucket = null;
+  items.forEach(t => {
+    const bucket = t.date < today ? "Overdue" : (t.date === today ? "Today" : "Upcoming");
+    if (bucket !== lastBucket) {
+      lastBucket = bucket;
+      const h = document.createElement("div");
+      h.className = "unfinished-bucket";
+      h.textContent = bucket;
+      list.appendChild(h);
+    }
+    const proj = state.projects.find(p => p.id === t.projectId);
+    const row = document.createElement("div");
+    row.className = "unfinished-row";
+    const olderInstances = seriesPeers(t).filter(p => p.date < t.date && p.status !== "done").length;
+    const seriesNote = olderInstances > 0 ? ` · carried ${olderInstances + 1}×` : "";
+    row.innerHTML = `
+      <span class="unf-color" style="background:${proj ? proj.color : "#ccc"}"></span>
+      <span class="unf-status" data-act="cycle">${STATUS_EMOJI[t.status]}</span>
+      <span class="unf-title"></span>
+      <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}${seriesNote}</span>
+      <button class="unf-go" title="Move to today">→ today</button>
+    `;
+    row.querySelector(".unf-title").textContent = t.title;
+    row.querySelector(".unf-status").onclick = (e) => {
+      e.stopPropagation();
+      cycleStatus(t.id);
+    };
+    row.querySelector(".unf-go").onclick = (e) => {
+      e.stopPropagation();
+      moveTasks([t.id], t.projectId, today, false);
+    };
+    row.onclick = () => {
+      state.anchorDate = t.date;
+      state.view = "day";
+      const mk = t.date.slice(0, 7);
+      if (!state.months.includes(mk)) state.months.push(mk);
+      state.activeMonth = mk;
+      saveState();
+      render();
+    };
+    list.appendChild(row);
+  });
+
+  wrap.appendChild(list);
+  main.appendChild(wrap);
+
+  document.getElementById("aiTidyBtn").onclick = () => aiTidyUnfinished();
+}
+
+async function aiTidyUnfinished() {
+  const key = getApiKey();
+  if (!key) { openSettingsModal(); showToast("Set your Claude API key first.", "error"); return; }
+  const open = unfinishedTasks();
+  if (open.length === 0) { showToast("Nothing to tidy"); return; }
+  const done = state.tasks.filter(t => t.status === "done");
+  if (done.length === 0) { showToast("No completed tasks to match against"); return; }
+
+  showToast("AI scanning for matches…");
+  try {
+    const projects = Object.fromEntries(state.projects.map(p => [p.id, p.name]));
+    const openList = open.map(t => ({ id: t.id, project: projects[t.projectId] || "?", title: t.title, date: t.date }));
+    const doneList = done.map(t => ({ id: t.id, project: projects[t.projectId] || "?", title: t.title, date: t.date }));
+
+    const body = {
+      model: CLAUDE_MODEL,
+      max_tokens: 4000,
+      system: [{ type: "text", text: "You help a project manager identify when an open task is actually the same work as one that was already completed (possibly worded differently or on a different day) within the SAME project. Only match within the same project. Be conservative: only link when the tasks are clearly the same piece of work. Return matches via the link_completed tool." }],
+      tools: [{
+        name: "link_completed",
+        description: "Return pairs of (openTaskId, completedTaskId) that are the same work.",
+        input_schema: {
+          type: "object",
+          properties: {
+            links: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  openId: { type: "string" },
+                  completedId: { type: "string" },
+                  reason: { type: "string" }
+                },
+                required: ["openId", "completedId"]
+              }
+            }
+          },
+          required: ["links"]
+        }
+      }],
+      tool_choice: { type: "tool", name: "link_completed" },
+      messages: [{
+        role: "user",
+        content: `Open tasks:\n${JSON.stringify(openList)}\n\nCompleted tasks:\n${JSON.stringify(doneList)}\n\nWhich open tasks match a completed task in the same project?`
+      }]
+    };
+
+    const res = await fetch(CLAUDE_API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const block = (data.content || []).find(b => b.type === "tool_use");
+    const links = (block && block.input && block.input.links) || [];
+    if (links.length === 0) { showToast("No matches found"); return; }
+
+    let linked = 0;
+    links.forEach(({ openId, completedId }) => {
+      const o = state.tasks.find(t => t.id === openId);
+      const c = state.tasks.find(t => t.id === completedId);
+      if (!o || !c || o.projectId !== c.projectId) return;
+      let sid = c.seriesId || o.seriesId || uid();
+      o.seriesId = sid;
+      c.seriesId = sid;
+      linked++;
+    });
+    if (linked === 0) { showToast("No valid matches"); return; }
+    saveState();
+    render();
+    showToast(`Linked ${linked} task${linked > 1 ? "s" : ""} as completed`, "success");
+  } catch (e) {
+    showToast(e.message || "AI tidy failed", "error");
+  }
+}
+
 function startEditTitle(t, titleEl, taskRoot) {
   if (taskRoot.querySelector(".title-edit-input")) return;
   const input = document.createElement("input");
@@ -1030,7 +1602,17 @@ function startEditTitle(t, titleEl, taskRoot) {
     if (done) return;
     done = true;
     const val = input.value.trim();
-    if (val && val !== t.title) { t.title = val; saveState(); }
+    if (val && val !== t.title) {
+      const oldSid = t.seriesId;
+      t.title = val;
+      if (oldSid) {
+        const stillUsed = state.tasks.some(x => x.id !== t.id && x.seriesId === oldSid);
+        if (!stillUsed) delete t.seriesId;
+        else delete t.seriesId;
+      }
+      attachToSeries(t);
+      saveState();
+    }
     render();
   };
   const cancel = () => { if (done) return; done = true; render(); };
@@ -1063,7 +1645,9 @@ function startInlineAdd(container, projectId, dateStr) {
       if (!state.months.includes(taskMonth)) state.months.push(taskMonth);
       const proj = state.projects.find(p => p.id === projectId);
       if (proj && !proj.months.includes(taskMonth)) proj.months.push(taskMonth);
-      state.tasks.push({ id: uid(), projectId, title: val, date: dateStr, status: "todo" });
+      const nt = { id: uid(), projectId, title: val, date: dateStr, status: "todo" };
+      state.tasks.push(nt);
+      attachToSeries(nt);
       saveState();
     }
     render();
@@ -1078,17 +1662,123 @@ function startInlineAdd(container, projectId, dateStr) {
   input.addEventListener("click", (e) => e.stopPropagation());
 }
 
+function renderTasksInto(container, tasks, proj) {
+  const seenGroups = new Set();
+  tasks.forEach(t => {
+    if (!t.groupId) {
+      container.appendChild(taskEl(t, proj));
+      return;
+    }
+    if (seenGroups.has(t.groupId)) return;
+    seenGroups.add(t.groupId);
+    const gid = t.groupId;
+    const members = tasks.filter(x => x.groupId === gid);
+    container.appendChild(buildGroupEl(gid, members, proj));
+  });
+}
+
+function buildGroupEl(gid, members, proj) {
+  const group = (state.groups || []).find(g => g.id === gid);
+  const wrap = document.createElement("div");
+  wrap.className = "task-group";
+  const header = document.createElement("div");
+  header.className = "task-group-header";
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "name";
+  const currentName = group ? group.name : "";
+  if (currentName) {
+    nameSpan.textContent = currentName;
+  } else {
+    nameSpan.textContent = "Name this group…";
+    nameSpan.classList.add("placeholder");
+  }
+  nameSpan.title = "Click to rename";
+  nameSpan.onclick = (e) => { e.stopPropagation(); editGroupNameInline(gid, nameSpan); };
+  header.appendChild(nameSpan);
+  const ungroupBtn = document.createElement("button");
+  ungroupBtn.className = "ungroup-btn";
+  ungroupBtn.textContent = "×";
+  ungroupBtn.title = "Disband group";
+  ungroupBtn.onclick = (e) => { e.stopPropagation(); ungroupGroup(gid); };
+  header.appendChild(ungroupBtn);
+  wrap.appendChild(header);
+  members.forEach(t => wrap.appendChild(taskEl(t, proj)));
+  wrap.onclick = (e) => e.stopPropagation();
+  if (group && !group.name && _focusGroupOnRender === gid) {
+    _focusGroupOnRender = null;
+    setTimeout(() => editGroupNameInline(gid, nameSpan), 0);
+  }
+  return wrap;
+}
+
+let _focusGroupOnRender = null;
+
+function editGroupNameInline(gid, nameSpan) {
+  const group = (state.groups || []).find(g => g.id === gid);
+  if (!group) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "name-input";
+  input.value = group.name || "";
+  input.placeholder = "Group name";
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    if (commit && v && v !== group.name) {
+      group.name = v;
+      saveState();
+      render();
+    } else if (commit && !v && !group.name) {
+      render();
+    } else {
+      render();
+    }
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  };
+  input.onblur = () => finish(true);
+  input.onclick = (e) => e.stopPropagation();
+}
+
 function taskEl(t, proj) {
   const el = document.createElement("div");
-  el.className = "task" + (t.status === "done" ? " done" : "");
-  el.style.borderLeftColor = proj.color;
+  const completedLater = laterDoneInSeries(t);
+  el.className = "task" + (t.status === "done" ? " done" : "") + (completedLater ? " done-later" : "");
+  if (selectedTaskIds.has(t.id)) el.classList.add("selected");
+  const inSeries = !!t.seriesId && state.tasks.some(x => x.id !== t.id && x.seriesId === t.seriesId);
+  if (inSeries) el.classList.add("in-series");
+  if (completedLater) el.title = `Completed on ${completedLater.date}`;
   el.draggable = true;
   el.addEventListener("dragstart", (e) => {
-    e.dataTransfer.setData("text/plain", t.id);
-    e.dataTransfer.effectAllowed = "move";
-    el.classList.add("dragging");
+    let ids;
+    if (selectedTaskIds.has(t.id) && selectedTaskIds.size > 1) {
+      ids = [...selectedTaskIds];
+    } else {
+      ids = [t.id];
+    }
+    const payload = ids.length === 1 ? ids[0] : JSON.stringify(ids);
+    e.dataTransfer.setData("text/plain", payload);
+    e.dataTransfer.effectAllowed = "copyMove";
+    if (ids.length > 1) {
+      ids.forEach(id => {
+        const o = document.querySelector(`.task[data-task-id="${id}"]`);
+        if (o) o.classList.add("dragging");
+      });
+    } else {
+      el.classList.add("dragging");
+    }
   });
-  el.addEventListener("dragend", () => el.classList.remove("dragging"));
+  el.addEventListener("dragend", () => {
+    document.querySelectorAll(".task.dragging").forEach(x => x.classList.remove("dragging"));
+  });
+  el.dataset.taskId = t.id;
 
   const stat = document.createElement("button");
   stat.className = "task-status";
@@ -1120,9 +1810,218 @@ function taskEl(t, proj) {
 
   el.onclick = (e) => {
     e.stopPropagation();
+    if (e.metaKey || e.ctrlKey) {
+      if (selectedTaskIds.has(t.id)) selectedTaskIds.delete(t.id);
+      else selectedTaskIds.add(t.id);
+      el.classList.toggle("selected", selectedTaskIds.has(t.id));
+      updateSelectionBar();
+      return;
+    }
     startEditTitle(t, title, el);
   };
+  el.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedTaskIds.has(t.id)) {
+      selectedTaskIds.clear();
+      selectedTaskIds.add(t.id);
+      document.querySelectorAll(".task.selected").forEach(x => x.classList.remove("selected"));
+      el.classList.add("selected");
+      updateSelectionBar();
+    }
+    showTaskContextMenu(e.clientX, e.clientY);
+  };
+  attachTaskReorderDrop(el, t);
   return el;
+}
+
+function clearSelection() {
+  selectedTaskIds.clear();
+  document.querySelectorAll(".task.selected").forEach(x => x.classList.remove("selected"));
+  updateSelectionBar();
+}
+
+function updateSelectionBar() {
+  let bar = document.getElementById("selectionBar");
+  if (selectedTaskIds.size === 0) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "selectionBar";
+    bar.className = "selection-bar";
+    document.body.appendChild(bar);
+  }
+  const anyGrouped = state.tasks.some(t => selectedTaskIds.has(t.id) && t.groupId);
+  bar.innerHTML = `
+    <span class="sel-count">${selectedTaskIds.size} selected</span>
+    <button class="btn" id="selGroup">${selectedTaskIds.size > 1 ? "Group" : "Group (need 2+)"}</button>
+    ${anyGrouped ? `<button class="btn btn-sec" id="selUngroup">Ungroup</button>` : ""}
+    <button class="btn btn-sec" id="selClear">Clear</button>
+  `;
+  const gBtn = bar.querySelector("#selGroup");
+  if (gBtn) gBtn.onclick = groupSelectedTasks;
+  if (gBtn && selectedTaskIds.size < 2) gBtn.disabled = true;
+  const uBtn = bar.querySelector("#selUngroup");
+  if (uBtn) uBtn.onclick = ungroupSelectedTasks;
+  bar.querySelector("#selClear").onclick = clearSelection;
+}
+
+function groupSelectedTasks() {
+  if (selectedTaskIds.size < 2) return;
+  const id = uid();
+  state.groups = state.groups || [];
+  state.groups.push({ id, name: "" });
+  state.tasks.forEach(t => { if (selectedTaskIds.has(t.id)) t.groupId = id; });
+  selectedTaskIds.clear();
+  _focusGroupOnRender = id;
+  saveState();
+  render();
+}
+
+function ungroupSelectedTasks() {
+  state.tasks.forEach(t => { if (selectedTaskIds.has(t.id)) delete t.groupId; });
+  pruneEmptyGroups();
+  selectedTaskIds.clear();
+  saveState();
+  render();
+}
+
+function pruneEmptyGroups() {
+  if (!state.groups) return;
+  const used = new Set(state.tasks.map(t => t.groupId).filter(Boolean));
+  state.groups = state.groups.filter(g => used.has(g.id));
+}
+
+function renameGroup(groupId, newName) {
+  const g = (state.groups || []).find(x => x.id === groupId);
+  if (!g) return;
+  g.name = newName;
+  saveState();
+  render();
+}
+
+function ungroupGroup(groupId) {
+  state.tasks.forEach(t => { if (t.groupId === groupId) delete t.groupId; });
+  state.groups = (state.groups || []).filter(g => g.id !== groupId);
+  saveState();
+  render();
+}
+
+let _ctxMenuEl = null;
+function closeContextMenu() {
+  if (_ctxMenuEl) { _ctxMenuEl.remove(); _ctxMenuEl = null; }
+  document.removeEventListener("mousedown", _ctxOutside, true);
+  document.removeEventListener("scroll", closeContextMenu, true);
+  window.removeEventListener("resize", closeContextMenu);
+}
+function _ctxOutside(e) {
+  if (_ctxMenuEl && !_ctxMenuEl.contains(e.target)) closeContextMenu();
+}
+function showTaskContextMenu(x, y) {
+  closeContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  const count = selectedTaskIds.size;
+  const canGroup = count >= 2;
+  menu.innerHTML = `
+    <button class="ctx-item" data-act="group" ${canGroup ? "" : "disabled"}>Group ${canGroup ? `(${count})` : "(need 2+)"}</button>
+    <button class="ctx-item" data-act="ungroup">Ungroup</button>
+    <button class="ctx-item danger" data-act="delete">Delete ${count > 1 ? `${count} tasks` : "task"}</button>
+  `;
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  menu.style.left = Math.min(x, vw - rect.width - 4) + "px";
+  menu.style.top = Math.min(y, vh - rect.height - 4) + "px";
+  menu.querySelectorAll(".ctx-item").forEach(b => {
+    b.onclick = () => {
+      const act = b.dataset.act;
+      closeContextMenu();
+      if (act === "group") groupSelectedTasks();
+      else if (act === "ungroup") ungroupSelectedTasks();
+      else if (act === "delete") {
+        const ids = [...selectedTaskIds];
+        if (!confirm(`Delete ${ids.length} task${ids.length > 1 ? "s" : ""}?`)) return;
+        state.tasks = state.tasks.filter(t => !selectedTaskIds.has(t.id));
+        pruneEmptyGroups();
+        selectedTaskIds.clear();
+        saveState();
+        render();
+      }
+    };
+  });
+  _ctxMenuEl = menu;
+  setTimeout(() => {
+    document.addEventListener("mousedown", _ctxOutside, true);
+    document.addEventListener("scroll", closeContextMenu, true);
+    window.addEventListener("resize", closeContextMenu);
+  }, 0);
+}
+
+function attachTaskReorderDrop(el, targetTask) {
+  el.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer.types.includes("text/plain")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = e.altKey ? "copy" : "move";
+    const r = el.getBoundingClientRect();
+    const above = (e.clientY - r.top) < r.height / 2;
+    el.classList.toggle("task-drop-above", above);
+    el.classList.toggle("task-drop-below", !above);
+  });
+  el.addEventListener("dragleave", () => {
+    el.classList.remove("task-drop-above", "task-drop-below");
+  });
+  el.addEventListener("drop", (e) => {
+    if (!e.dataTransfer.types.includes("text/plain")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = el.getBoundingClientRect();
+    const above = (e.clientY - r.top) < r.height / 2;
+    el.classList.remove("task-drop-above", "task-drop-below");
+    const ids = readDragIds(e);
+    if (ids.length === 0) return;
+    moveTasksToPosition(ids, targetTask, above ? "before" : "after", e.altKey);
+  });
+}
+
+function moveTasksToPosition(ids, targetTask, mode, duplicate) {
+  const newMonth = targetTask.date.slice(0, 7);
+  if (!state.months.includes(newMonth)) state.months.push(newMonth);
+  const proj = state.projects.find(p => p.id === targetTask.projectId);
+  if (proj && !proj.months.includes(newMonth)) proj.months.push(newMonth);
+
+  const moving = [];
+  if (duplicate) {
+    ids.forEach(id => {
+      const src = state.tasks.find(t => t.id === id);
+      if (!src) return;
+      const copy = { ...src, id: uid(), projectId: targetTask.projectId, date: targetTask.date };
+      if (targetTask.groupId) copy.groupId = targetTask.groupId; else delete copy.groupId;
+      moving.push(copy);
+    });
+  } else {
+    ids.forEach(id => {
+      if (id === targetTask.id) return;
+      const idx = state.tasks.findIndex(t => t.id === id);
+      if (idx < 0) return;
+      const [src] = state.tasks.splice(idx, 1);
+      src.projectId = targetTask.projectId;
+      src.date = targetTask.date;
+      if (targetTask.groupId) src.groupId = targetTask.groupId; else delete src.groupId;
+      moving.push(src);
+    });
+  }
+  if (moving.length === 0) return;
+  const tIdx = state.tasks.findIndex(t => t.id === targetTask.id);
+  const insertAt = tIdx < 0 ? state.tasks.length : (mode === "before" ? tIdx : tIdx + 1);
+  state.tasks.splice(insertAt, 0, ...moving);
+  pruneEmptyGroups();
+  saveState();
+  render();
 }
 
 function escapeHtml(s) {
@@ -1209,7 +2108,9 @@ function openTaskModal(prefill = {}) {
     if (!state.months.includes(taskMonth)) state.months.push(taskMonth);
     const proj = state.projects.find(p => p.id === projectId);
     if (proj && !proj.months.includes(taskMonth)) proj.months.push(taskMonth);
-    state.tasks.push({ id: uid(), projectId, title, date, status });
+    const nt = { id: uid(), projectId, title, date, status };
+    state.tasks.push(nt);
+    attachToSeries(nt);
     saveState();
     document.body.removeChild(backdrop);
     render();
@@ -1349,42 +2250,27 @@ function editProjectColor(id) {
 /* =========================================================
    Events
    ========================================================= */
-document.getElementById("newTaskBtn").onclick = () => openTaskModal();
 document.getElementById("fabBtn").onclick = () => openTaskModal();
-document.getElementById("newProjectBtn").onclick = openProjectModal;
 
-document.querySelectorAll(".view-btn").forEach(b => {
-  b.onclick = () => { state.view = b.dataset.view; saveState(); render(); };
+document.getElementById("viewSelect").onchange = (e) => {
+  state.view = e.target.value;
+  saveState();
+  render();
+};
+
+document.getElementById("undoBtn").onclick = () => undo();
+document.getElementById("redoBtn").onclick = () => redo();
+
+document.addEventListener("keydown", (e) => {
+  if (!(e.metaKey || e.ctrlKey)) return;
+  if (e.altKey) return;
+  if (e.key !== "z" && e.key !== "Z") return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+  e.preventDefault();
+  if (e.shiftKey) redo(); else undo();
 });
 
-document.getElementById("prevBtn").onclick = () => {
-  if (state.view === "day") state.anchorDate = addDays(state.anchorDate, -1);
-  else if (state.view === "week") state.anchorDate = addDays(state.anchorDate, -7);
-  else {
-    const [y,m] = state.activeMonth.split("-").map(Number);
-    const d = new Date(y, m-2, 1);
-    state.anchorDate = isoDate(d);
-    const k = monthKey(d);
-    if (!state.months.includes(k)) state.months.push(k);
-    state.activeMonth = k;
-  }
-  syncActiveMonth();
-  saveState(); render();
-};
-document.getElementById("nextBtn").onclick = () => {
-  if (state.view === "day") state.anchorDate = addDays(state.anchorDate, 1);
-  else if (state.view === "week") state.anchorDate = addDays(state.anchorDate, 7);
-  else {
-    const [y,m] = state.activeMonth.split("-").map(Number);
-    const d = new Date(y, m, 1);
-    state.anchorDate = isoDate(d);
-    const k = monthKey(d);
-    if (!state.months.includes(k)) state.months.push(k);
-    state.activeMonth = k;
-  }
-  syncActiveMonth();
-  saveState(); render();
-};
 document.getElementById("todayBtn").onclick = () => {
   state.anchorDate = isoDate(new Date());
   const k = monthKey(new Date());
@@ -1456,15 +2342,26 @@ function openSettingsModal() {
       </div>
     </div>
     <div class="form-group">
-      <label>GitHub sync (auto-commit to ${GH_REPO})</label>
-      <input id="sGhToken" type="password" placeholder="github_pat_..." value="${escapeHtml(getGhToken())}" />
-      <div style="font-size:11px; color:#6e6e73; margin-top:6px;">
-        Fine-grained PAT with <b>Contents: Read and write</b> on this repo.
-        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" style="color:#007aff;">Create one</a>.
+      <label>Account</label>
+      <div style="font-size:13px; color:#1d1d1f; margin-bottom:8px;">
+        ${currentUser ? `Signed in as <b>${escapeHtml(currentUser.email)}</b>` : "Not signed in"}
       </div>
-      <div style="display:flex; gap:6px; margin-top:8px;">
-        <button class="btn btn-sec" id="sGhPull" type="button" style="flex:1;">⬇ Pull from GitHub</button>
-        <button class="btn btn-sec" id="sGhPush" type="button" style="flex:1;">⬆ Push now</button>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-sec" id="sPull" type="button" style="flex:1;" ${currentUser ? "" : "disabled"}>⬇ Pull from cloud</button>
+        <button class="btn btn-sec" id="sPush" type="button" style="flex:1;" ${currentUser ? "" : "disabled"}>⬆ Push now</button>
+        <button class="btn btn-sec" id="sSignOut" type="button" style="flex:1;" ${currentUser ? "" : "disabled"}>Sign out</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Backup & import</label>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-sec" id="sExportXlsx" type="button" style="flex:1;">⬇ Export Excel</button>
+        <button class="btn btn-sec" id="sExportCsv" type="button" style="flex:1;">⬇ Export CSV</button>
+        <button class="btn btn-sec" id="sImport" type="button" style="flex:1;">⬆ Import</button>
+      </div>
+      <input type="file" id="sImportFile" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style="display:none;" />
+      <div style="font-size:11px; color:#6e6e73; margin-top:6px;">
+        Import accepts .xlsx, .xls or .csv — AI parses any column order.
       </div>
     </div>
     <div class="modal-actions">
@@ -1480,29 +2377,42 @@ function openSettingsModal() {
     document.body.removeChild(backdrop);
     openNanoWizard();
   };
-  modal.querySelector("#sGhPull").onclick = async () => {
-    const t = modal.querySelector("#sGhToken").value.trim();
-    setGhToken(t);
-    await loadFromGitHub();
+  modal.querySelector("#sExportXlsx").onclick = () => {
+    document.body.removeChild(backdrop);
+    exportToXLSX();
   };
-  modal.querySelector("#sGhPush").onclick = async () => {
-    const t = modal.querySelector("#sGhToken").value.trim();
-    setGhToken(t);
-    await syncToGitHub();
+  modal.querySelector("#sExportCsv").onclick = () => {
+    document.body.removeChild(backdrop);
+    exportToCSV();
   };
+  modal.querySelector("#sImport").onclick = () => modal.querySelector("#sImportFile").click();
+  modal.querySelector("#sImportFile").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    document.body.removeChild(backdrop);
+    await handleSpreadsheetImport(file);
+  };
+  if (currentUser) {
+    modal.querySelector("#sPull").onclick = async () => {
+      document.body.removeChild(backdrop);
+      await loadRemoteState();
+    };
+    modal.querySelector("#sPush").onclick = async () => {
+      document.body.removeChild(backdrop);
+      await pushToRemote();
+    };
+    modal.querySelector("#sSignOut").onclick = async () => {
+      document.body.removeChild(backdrop);
+      await signOut();
+    };
+  }
   modal.querySelector("#sSave").onclick = () => {
     const k = modal.querySelector("#sKey").value.trim();
     const p = modal.querySelector('input[name="sProv"]:checked').value;
-    const t = modal.querySelector("#sGhToken").value.trim();
     setApiKey(k);
     setProvider(p);
-    const tokenChanged = t !== getGhToken();
-    setGhToken(t);
     document.body.removeChild(backdrop);
     showToast(`Saved — using ${p === "nano" ? "Gemini Nano" : "Claude Haiku"}`, "success");
-    if (t && tokenChanged) loadFromGitHub();
-    else if (t) setSyncStatus("☁ Synced", "ok");
-    else setSyncStatus("☁ Sync off");
   };
 }
 
@@ -1808,6 +2718,369 @@ function openNanoWizard() {
   intro();
 }
 
+/* =========================================================
+   Export / Import
+   ========================================================= */
+function csvEscape(v) {
+  const s = String(v ?? "");
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function buildExportRows() {
+  const rows = [["Project", "Color", "Group", "Task", "Date", "Status", "Months"]];
+  state.projects.forEach(p => {
+    const projTasks = state.tasks.filter(t => t.projectId === p.id);
+    if (projTasks.length === 0) {
+      rows.push([p.name, p.color, "", "", "", "", (p.months || []).join("|")]);
+    } else {
+      projTasks.forEach(t => {
+        const grp = t.groupId && state.groups ? state.groups.find(g => g.id === t.groupId) : null;
+        rows.push([p.name, p.color, grp ? grp.name : "", t.title, t.date, t.status, (p.months || []).join("|")]);
+      });
+    }
+  });
+  state.tasks
+    .filter(t => !state.projects.find(p => p.id === t.projectId))
+    .forEach(t => rows.push(["", "", "", t.title, t.date, t.status, ""]));
+  return rows;
+}
+
+function exportToXLSX() {
+  if (typeof XLSX === "undefined") {
+    showToast("XLSX library not loaded — using CSV", "error");
+    exportToCSV();
+    return;
+  }
+  const rows = buildExportRows();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const widths = [22, 10, 16, 40, 12, 10, 22];
+  ws["!cols"] = widths.map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+  XLSX.writeFile(wb, `pm-export-${isoDate(new Date())}.xlsx`);
+  showToast("Exported XLSX", "success");
+}
+
+function exportToCSV() {
+  const rows = buildExportRows();
+  const csv = rows.map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pm-export-${isoDate(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast("Exported CSV", "success");
+}
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; continue; }
+        inQuotes = false;
+      } else field += c;
+      continue;
+    }
+    if (c === '"') { inQuotes = true; continue; }
+    if (c === ",") { row.push(field); field = ""; continue; }
+    if (c === "\r") continue;
+    if (c === "\n") {
+      row.push(field); field = "";
+      if (row.some(v => v.length > 0)) rows.push(row);
+      row = [];
+      continue;
+    }
+    field += c;
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    if (row.some(v => v.length > 0)) rows.push(row);
+  }
+  return rows;
+}
+
+async function parseImportedCSVWithAI(rows) {
+  const key = getApiKey();
+  if (!key) { openSettingsModal(); throw new Error("Set your Claude API key first."); }
+
+  const sample = rows.slice(0, 120);
+  const csvText = sample.map(r => r.map(v => String(v).replace(/\s+/g, " ").slice(0, 200)).join(" | ")).join("\n");
+
+  const today = isoDate(new Date());
+  const system = [{
+    type: "text",
+    text: "You parse spreadsheet data into a personal project manager's data model. The app has projects (name, color hex, list of active months) and tasks (title, ISO date YYYY-MM-DD, status one of todo/doing/done, and a projectName). Given pipe-separated spreadsheet rows, detect whether the first row is a header (may also be plain data) and map columns. The input may contain MULTIPLE SHEETS from one workbook; each sheet starts with a marker row formatted exactly as `### SHEET: <name>`. Treat each sheet independently — re-detect headers per sheet, and use the sheet name as a hint (e.g. it may be a project name, a month, a category, or just a tab label). Merge tasks from all sheets into a single output. Never silently drop rows — either extract them into the output, or add a clear short entry to the `questions` array describing what needs clarification (ask yes/no or multiple-choice phrasing; do NOT fabricate data when ambiguous). If a row has no date, ask. If no status, default to `todo`. If no explicit color, omit it and the app will pick one."
+  }];
+
+  const tools = [{
+    name: "propose_import",
+    description: "Propose the parsed import plan.",
+    input_schema: {
+      type: "object",
+      properties: {
+        headerDetected: { type: "string", description: "Comma-separated detected column mapping." },
+        projects: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, color: { type: "string" } },
+            required: ["name"]
+          }
+        },
+        tasks: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              projectName: { type: "string" },
+              title: { type: "string" },
+              date: { type: "string", description: "ISO YYYY-MM-DD" },
+              status: { type: "string", enum: STATUSES }
+            },
+            required: ["projectName", "title", "date", "status"]
+          }
+        },
+        questions: {
+          type: "array",
+          items: { type: "string" },
+          description: "Open clarifying questions. Empty array if none."
+        }
+      },
+      required: ["projects", "tasks", "questions"]
+    }
+  }];
+
+  const body = {
+    model: CLAUDE_MODEL,
+    max_tokens: 4000,
+    system,
+    tools,
+    tool_choice: { type: "tool", name: "propose_import" },
+    messages: [{ role: "user", content: `Today is ${today}. Parse this spreadsheet:\n\n${csvText}` }]
+  };
+
+  const res = await fetch(CLAUDE_API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const toolBlock = (data.content || []).find(b => b.type === "tool_use");
+  if (!toolBlock) throw new Error("AI did not return a proposal.");
+  return toolBlock.input;
+}
+
+async function handleSpreadsheetImport(file) {
+  try {
+    const name = (file.name || "").toLowerCase();
+    let rows = [];
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      if (typeof XLSX === "undefined") throw new Error("XLSX library not loaded.");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      wb.SheetNames.forEach((sheetName, i) => {
+        const sheet = wb.Sheets[sheetName];
+        const sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+        if (!sheetRows.length) return;
+        if (i > 0) rows.push([]);
+        rows.push([`### SHEET: ${sheetName}`]);
+        rows.push(...sheetRows);
+      });
+    } else {
+      const text = await file.text();
+      rows = parseCSV(text);
+    }
+    if (!rows || rows.length === 0) { showToast("Empty file", "error"); return; }
+    showToast("Parsing with AI…");
+    const plan = await parseImportedCSVWithAI(rows);
+    openImportPreview(plan);
+  } catch (e) {
+    showToast(e.message || "Import failed", "error");
+  }
+}
+
+async function handleCSVImport(file) {
+  try {
+    const text = await file.text();
+    const rows = parseCSV(text);
+    if (rows.length === 0) { showToast("Empty file", "error"); return; }
+    showToast("Parsing with AI…");
+    const plan = await parseImportedCSVWithAI(rows);
+    openImportPreview(plan);
+  } catch (e) {
+    showToast(e.message || "Import failed", "error");
+  }
+}
+
+function openImportPreview(plan) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.style.maxWidth = "600px";
+
+  const questions = plan.questions || [];
+  const qHtml = questions.map((q, i) => `
+    <div class="form-group">
+      <label>Question ${i + 1}</label>
+      <div style="font-size:13px; margin-bottom:6px;">${escapeHtml(q)}</div>
+      <input type="text" id="q_${i}" placeholder="Your answer (blank = accept default)" />
+    </div>
+  `).join("");
+
+  const preview = (plan.tasks || []).slice(0, 25).map(t =>
+    `${escapeHtml(t.projectName || "—")} · ${escapeHtml(t.title || "—")} · ${escapeHtml(t.date || "—")} · ${escapeHtml(t.status || "todo")}`
+  ).join("<br>");
+  const more = Math.max(0, (plan.tasks || []).length - 25);
+
+  modal.innerHTML = `
+    <h2>📥 Review import</h2>
+    <div style="font-size:13px; color:#6e6e73; margin-bottom:14px;">
+      <b>Detected columns:</b> ${escapeHtml(plan.headerDetected || "unknown")}<br>
+      ${(plan.projects || []).length} project(s), ${(plan.tasks || []).length} task(s).
+    </div>
+    ${questions.length ? `<div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#ff9500;">⚠ AI needs clarification before importing</div>${qHtml}` : ""}
+    <div style="max-height:220px; overflow-y:auto; background:#f5f5f7; border-radius:8px; padding:10px; font-size:11px; font-family:ui-monospace,Menlo,monospace; line-height:1.5;">
+      ${preview || "<i>No tasks extracted.</i>"}
+      ${more > 0 ? `<br><i>…+${more} more</i>` : ""}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="iCancel">Cancel</button>
+      <button class="btn" id="iConfirm">${questions.length ? "Import with these answers" : "Import"}</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
+  modal.querySelector("#iCancel").onclick = () => document.body.removeChild(backdrop);
+  modal.querySelector("#iConfirm").onclick = () => {
+    const answers = questions.map((_, i) => modal.querySelector(`#q_${i}`).value.trim());
+    document.body.removeChild(backdrop);
+    if (answers.some(a => a.length > 0)) {
+      refineImportWithAnswers(plan, questions, answers);
+    } else {
+      applyImportPlan(plan);
+    }
+  };
+}
+
+async function refineImportWithAnswers(plan, questions, answers) {
+  const key = getApiKey();
+  if (!key) { applyImportPlan(plan); return; }
+  showToast("Refining with your answers…");
+  try {
+    const qa = questions.map((q, i) => `Q: ${q}\nA: ${answers[i] || "(no answer — use default)"}`).join("\n\n");
+    const body = {
+      model: CLAUDE_MODEL,
+      max_tokens: 4000,
+      system: [{ type: "text", text: "You previously proposed an import plan and raised clarifying questions. The user has now answered. Return a revised propose_import result incorporating the answers. Keep questions empty unless something is still ambiguous." }],
+      tools: [{
+        name: "propose_import",
+        description: "Revised import plan.",
+        input_schema: {
+          type: "object",
+          properties: {
+            headerDetected: { type: "string" },
+            projects: { type: "array", items: { type: "object", properties: { name: { type: "string" }, color: { type: "string" } }, required: ["name"] } },
+            tasks: { type: "array", items: { type: "object", properties: { projectName: { type: "string" }, title: { type: "string" }, date: { type: "string" }, status: { type: "string", enum: STATUSES } }, required: ["projectName", "title", "date", "status"] } },
+            questions: { type: "array", items: { type: "string" } }
+          },
+          required: ["projects", "tasks", "questions"]
+        }
+      }],
+      tool_choice: { type: "tool", name: "propose_import" },
+      messages: [
+        { role: "user", content: `Previous proposal:\n${JSON.stringify(plan)}\n\nAnswers to your questions:\n${qa}` }
+      ]
+    };
+    const res = await fetch(CLAUDE_API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const toolBlock = (data.content || []).find(b => b.type === "tool_use");
+    if (!toolBlock) throw new Error("AI did not refine the plan.");
+    openImportPreview(toolBlock.input);
+  } catch (e) {
+    showToast(e.message || "Refinement failed", "error");
+  }
+}
+
+function applyImportPlan(plan) {
+  const projMap = {};
+  (plan.projects || []).forEach(p => {
+    if (!p.name) return;
+    const existing = state.projects.find(x => x.name.toLowerCase() === p.name.toLowerCase());
+    if (existing) { projMap[p.name.toLowerCase()] = existing.id; return; }
+    const id = uid();
+    state.projects.push({
+      id,
+      name: p.name,
+      color: normalizeHex(p.color) || COLORS[state.projects.length % COLORS.length],
+      months: []
+    });
+    projMap[p.name.toLowerCase()] = id;
+  });
+
+  let added = 0;
+  (plan.tasks || []).forEach(t => {
+    if (!t.title || !t.date || !t.projectName) return;
+    const key = t.projectName.toLowerCase();
+    let pid = projMap[key];
+    if (!pid) {
+      const existing = state.projects.find(x => x.name.toLowerCase() === key);
+      if (existing) {
+        pid = existing.id;
+      } else {
+        pid = uid();
+        state.projects.push({
+          id: pid,
+          name: t.projectName,
+          color: COLORS[state.projects.length % COLORS.length],
+          months: []
+        });
+      }
+      projMap[key] = pid;
+    }
+    const m = t.date.slice(0, 7);
+    if (!state.months.includes(m)) state.months.push(m);
+    const proj = state.projects.find(x => x.id === pid);
+    if (proj && !proj.months.includes(m)) proj.months.push(m);
+    const nt = {
+      id: uid(),
+      projectId: pid,
+      title: t.title,
+      date: t.date,
+      status: STATUSES.includes(t.status) ? t.status : "todo"
+    };
+    state.tasks.push(nt);
+    attachToSeries(nt);
+    added++;
+  });
+
+  saveState();
+  render();
+  showToast(`Imported ${added} task(s)`, "success");
+}
+
 async function handleQuickAdd(text) {
   const input = document.getElementById("quickAddInput");
   const status = document.getElementById("quickAddStatus");
@@ -1828,7 +3101,9 @@ async function handleQuickAdd(text) {
     const proj = state.projects.find(p => p.id === projectId);
     if (proj && !proj.months.includes(taskMonth)) proj.months.push(taskMonth);
 
-    state.tasks.push({ id: uid(), projectId, title, date, status: STATUSES.includes(st) ? st : "todo" });
+    const nt = { id: uid(), projectId, title, date, status: STATUSES.includes(st) ? st : "todo" };
+    state.tasks.push(nt);
+    attachToSeries(nt);
     saveState();
     render();
 
@@ -1859,148 +3134,208 @@ document.getElementById("appTitle").onclick = () => {
   const v = prompt("Rename the app:", state.appName);
   if (v !== null && v.trim()) { state.appName = v.trim(); saveState(); render(); }
 };
-document.getElementById("greetingName").onclick = () => {
-  const v = prompt("What should I call you?", state.userName);
-  if (v !== null && v.trim()) { state.userName = v.trim(); saveState(); render(); }
-};
-
 /* =========================================================
-   GitHub Sync
+   Supabase Sync (cross-device via email + password)
    ========================================================= */
-const GH_REPO = "luluguan723/project-management";
-const GH_BRANCH = "main";
-const GH_PATH = "data.json";
-const GH_TOKEN_KEY = "pm_gh_token";
-const GH_SHA_KEY = "pm_gh_sha";
-
-function getGhToken() { return localStorage.getItem(GH_TOKEN_KEY) || ""; }
-function setGhToken(t) {
-  if (t) localStorage.setItem(GH_TOKEN_KEY, t);
-  else localStorage.removeItem(GH_TOKEN_KEY);
-}
+const SUPABASE_URL = "https://oeyipxlutysewtioshkr.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ll8EIIuukSJmkdHJGmJsJw_jYaCp5-9";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser = null;
 
 function setSyncStatus(text, kind = "", autoClearMs = 0) {
   const el = document.getElementById("headerSync");
   if (!el) return;
   el.className = "header-sync" + (kind ? " " + kind : "");
   el.textContent = text;
+  const tip = /signed out|sign in/i.test(text)
+    ? "Signed out — data is local only. Click to sign in and sync across devices."
+    : /synced/i.test(text)
+      ? (currentUser ? `Signed in as ${currentUser.email}. Click for settings.` : "Synced. Click for settings.")
+      : "Sync status. Click for settings.";
+  el.title = tip;
   if (autoClearMs > 0) {
     clearTimeout(setSyncStatus._t);
     setSyncStatus._t = setTimeout(() => {
-      if (getGhToken()) setSyncStatus("☁ Synced", "ok");
-      else setSyncStatus("☁ Sync off", "");
+      if (currentUser) setSyncStatus("☁ Synced", "ok");
+      else setSyncStatus("☁ Sign in", "");
     }, autoClearMs);
   }
 }
 
-let ghSyncTimer = null;
-let ghSyncing = false;
-let ghSyncPending = false;
-function scheduleGhSync() {
-  if (!getGhToken()) return;
-  clearTimeout(ghSyncTimer);
-  ghSyncTimer = setTimeout(syncToGitHub, 1500);
+let syncTimer = null;
+let syncing = false;
+let syncPending = false;
+function scheduleSync() {
+  if (!currentUser) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushToRemote, 1200);
 }
 
-function utf8ToBase64(s) {
-  return btoa(String.fromCharCode(...new TextEncoder().encode(s)));
-}
-function base64ToUtf8(b) {
-  const bin = atob(b.replace(/\s/g, ""));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
-
-async function ghApi(path, opts = {}) {
-  const token = getGhToken();
-  if (!token) throw new Error("No GitHub token set.");
-  const res = await fetch(`https://api.github.com/repos/${GH_REPO}${path}`, {
-    ...opts,
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json",
-      ...(opts.headers || {})
-    }
-  });
-  return res;
-}
-
-async function refreshGhSha() {
-  const res = await ghApi(`/contents/${GH_PATH}?ref=${GH_BRANCH}`);
-  if (res.status === 404) { localStorage.removeItem(GH_SHA_KEY); return null; }
-  if (!res.ok) throw new Error(`GitHub ${res.status}`);
-  const data = await res.json();
-  localStorage.setItem(GH_SHA_KEY, data.sha);
-  return data.sha;
-}
-
-async function syncToGitHub() {
-  if (ghSyncing) { ghSyncPending = true; return; }
-  if (!getGhToken()) return;
-  ghSyncing = true;
+async function pushToRemote() {
+  if (syncing) { syncPending = true; return; }
+  if (!currentUser) return;
+  syncing = true;
   setSyncStatus("☁ Saving…", "busy");
   try {
-    const content = utf8ToBase64(JSON.stringify(state, null, 2));
-    let sha = localStorage.getItem(GH_SHA_KEY) || null;
-    const doPut = async (sha) => ghApi(`/contents/${GH_PATH}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        message: `Update data — ${new Date().toISOString()}`,
-        content,
-        branch: GH_BRANCH,
-        ...(sha ? { sha } : {})
-      })
+    const { error } = await sb.from("app_state").upsert({
+      user_id: currentUser.id,
+      state,
+      updated_at: new Date().toISOString()
     });
-    let res = await doPut(sha);
-    if (res.status === 409 || res.status === 422) {
-      sha = await refreshGhSha();
-      res = await doPut(sha);
-    }
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`${res.status} ${errText.slice(0, 120)}`);
-    }
-    const data = await res.json();
-    localStorage.setItem(GH_SHA_KEY, data.content.sha);
+    if (error) throw error;
     setSyncStatus("☁ Synced", "ok", 1500);
   } catch (e) {
     setSyncStatus("⚠ " + (e.message || "Sync failed"), "err", 5000);
   } finally {
-    ghSyncing = false;
-    if (ghSyncPending) { ghSyncPending = false; scheduleGhSync(); }
+    syncing = false;
+    if (syncPending) { syncPending = false; scheduleSync(); }
   }
 }
 
-async function loadFromGitHub({ silent = false } = {}) {
-  if (!getGhToken()) { setSyncStatus("☁ Sync off"); return; }
+async function loadRemoteState({ silent = false } = {}) {
+  if (!currentUser) { setSyncStatus("☁ Sign in"); return; }
   if (!silent) setSyncStatus("☁ Loading…", "busy");
   try {
-    const res = await ghApi(`/contents/${GH_PATH}?ref=${GH_BRANCH}`);
-    if (res.status === 404) {
-      setSyncStatus("☁ No remote yet — will create on next save", "", 3000);
-      // Push current local state up so the file gets created
-      scheduleGhSync();
-      return;
+    const { data, error } = await sb
+      .from("app_state")
+      .select("state")
+      .eq("user_id", currentUser.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (data && data.state && Object.keys(data.state).length > 0) {
+      state = data.state;
+      if (!state.appName) state.appName = "📋 Project Manager";
+      if (!state.userName) state.userName = "Kailu";
+      if (!Array.isArray(state.projects)) state.projects = [];
+      if (!Array.isArray(state.tasks)) state.tasks = [];
+      if (!Array.isArray(state.months)) state.months = [monthKey(new Date())];
+      if (!state.activeMonth) state.activeMonth = monthKey(new Date());
+      if (!state.anchorDate) state.anchorDate = isoDate(new Date());
+      if (!state.view) state.view = "week";
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      render();
+      setSyncStatus("☁ Synced", "ok", 1500);
+    } else {
+      setSyncStatus("☁ First sync — pushing local data", "", 2000);
+      scheduleSync();
     }
-    if (!res.ok) throw new Error(`GitHub ${res.status}`);
-    const data = await res.json();
-    localStorage.setItem(GH_SHA_KEY, data.sha);
-    const remoteJson = base64ToUtf8(data.content);
-    const remote = JSON.parse(remoteJson);
-    state = remote;
-    if (!state.appName) state.appName = "📋 Project Manager";
-    if (!state.userName) state.userName = "Kailu";
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    render();
-    setSyncStatus("☁ Synced", "ok", 1500);
   } catch (e) {
     setSyncStatus("⚠ " + (e.message || "Load failed"), "err", 5000);
   }
 }
 
-document.getElementById("headerSync").onclick = openSettingsModal;
+async function signOut() {
+  await sb.auth.signOut();
+  currentUser = null;
+  setSyncStatus("☁ Sign in");
+  openAuthModal();
+}
+
+function openAuthModal() {
+  const existing = document.querySelector(".auth-backdrop");
+  if (existing) return;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop auth-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  let mode = "signin";
+
+  const renderForm = () => {
+    modal.innerHTML = `
+      <h2 id="authTitle">${mode === "signin" ? "Sign in" : "Create account"}</h2>
+      <p style="font-size:13px; color:#6e6e73; margin-bottom:14px;">
+        ${mode === "signin" ? "Sign in to sync your tasks across devices." : "Your tasks sync across any device you sign in on."}
+      </p>
+      <div class="form-group">
+        <label>Email</label>
+        <input id="aEmail" type="email" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input id="aPassword" type="password" autocomplete="${mode === "signin" ? "current-password" : "new-password"}" />
+      </div>
+      <div id="aError" style="color:#ff3b30; font-size:12px; margin-bottom:10px; display:none;"></div>
+      <div id="aInfo" style="color:#34c759; font-size:12px; margin-bottom:10px; display:none;"></div>
+      <div class="modal-actions" style="justify-content: space-between; align-items:center;">
+        <button class="btn btn-sec" id="aToggle" type="button">${mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}</button>
+        <button class="btn" id="aSubmit" type="button">${mode === "signin" ? "Sign in" : "Sign up"}</button>
+      </div>
+    `;
+    modal.querySelector("#aToggle").onclick = () => { mode = mode === "signin" ? "signup" : "signin"; renderForm(); };
+    modal.querySelector("#aSubmit").onclick = submit;
+    const pw = modal.querySelector("#aPassword");
+    pw.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+    modal.querySelector("#aEmail").focus();
+  };
+
+  const submit = async () => {
+    const email = modal.querySelector("#aEmail").value.trim();
+    const password = modal.querySelector("#aPassword").value;
+    const errEl = modal.querySelector("#aError");
+    const infoEl = modal.querySelector("#aInfo");
+    errEl.style.display = "none";
+    infoEl.style.display = "none";
+    if (!email || !password) { errEl.textContent = "Enter email and password."; errEl.style.display = "block"; return; }
+    const btn = modal.querySelector("#aSubmit");
+    btn.disabled = true;
+    btn.textContent = "Working…";
+    try {
+      if (mode === "signin") {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        document.body.removeChild(backdrop);
+      } else {
+        const { data, error } = await sb.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.session) {
+          document.body.removeChild(backdrop);
+        } else {
+          infoEl.textContent = "Account created. Check your email to confirm, then sign in.";
+          infoEl.style.display = "block";
+          mode = "signin";
+          renderForm();
+          modal.querySelector("#aEmail").value = email;
+          modal.querySelector("#aInfo").textContent = infoEl.textContent;
+          modal.querySelector("#aInfo").style.display = "block";
+        }
+      }
+    } catch (e) {
+      errEl.textContent = e.message || "Auth failed";
+      errEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = mode === "signin" ? "Sign in" : "Sign up";
+    }
+  };
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  renderForm();
+}
+
+async function initAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  currentUser = session?.user || null;
+  if (currentUser) {
+    await loadRemoteState({ silent: true });
+  } else {
+    setSyncStatus("☁ Sign in");
+    openAuthModal();
+  }
+  sb.auth.onAuthStateChange((event, session) => {
+    const prev = currentUser?.id;
+    currentUser = session?.user || null;
+    if (currentUser && currentUser.id !== prev) {
+      loadRemoteState({ silent: true });
+    } else if (!currentUser) {
+      setSyncStatus("☁ Sign in");
+    }
+  });
+}
+
+document.getElementById("headerSync").onclick = () => {
+  if (currentUser) openSettingsModal();
+  else openAuthModal();
+};
 
 /* =========================================================
    Weather
@@ -2038,9 +3373,9 @@ function loadWeather() {
 }
 
 render();
+updateUndoRedoButtons();
 loadWeather();
-if (getGhToken()) loadFromGitHub({ silent: true });
-else setSyncStatus("☁ Sync off");
+initAuth();
 </script>
 </body>
 </html>
