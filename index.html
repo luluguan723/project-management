@@ -301,8 +301,10 @@
   .task.done .task-title { text-decoration: line-through; }
   .task.done-later { opacity: 0.45; }
   .task.done-later .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; }
-  .task.archived { opacity: 0.35; }
-  .task.archived .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; font-style: italic; }
+  .task.carried { opacity: 0.45; }
+  .task.carried .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; }
+  .task.archived { opacity: 0.4; }
+  .task.archived .task-title { color: #8e8e93; }
   .task.in-series .task-title::after { content: " ↺"; color: #8e8e93; font-size: 10px; }
   .task.dragging { opacity: 0.4; }
   .task.selected {
@@ -947,6 +949,12 @@ function laterDoneInSeries(t) {
   return peers.find(p => p.status === "done" && p.date > t.date) || null;
 }
 
+function carriedForward(t) {
+  if (!t || t.status === "done") return null;
+  const peers = seriesPeers(t);
+  return peers.find(p => p.date > t.date) || null;
+}
+
 function addProject(name, color) {
   const existing = state.projects.find(p => p.name.toLowerCase() === name.toLowerCase());
   if (existing) {
@@ -988,6 +996,39 @@ function deleteTask(taskId) {
   saveState();
   render();
 }
+function moveTasksToMonth(ids, newProjectId, targetMonth, duplicate) {
+  const [y, mm] = targetMonth.split("-").map(Number);
+  const lastDayOfMonth = new Date(y, mm, 0).getDate();
+  let changed = false;
+  ids.forEach(id => {
+    const t = state.tasks.find(x => x.id === id);
+    if (!t) return;
+    const srcDay = parseInt(t.date.slice(8, 10));
+    const day = Math.min(srcDay, lastDayOfMonth);
+    const newDate = `${targetMonth}-${String(day).padStart(2, "0")}`;
+    const pid = newProjectId || t.projectId;
+    if (duplicate) {
+      const copy = { ...t, id: uid(), projectId: pid, date: newDate };
+      delete copy.groupId;
+      state.tasks.push(copy);
+    } else {
+      t.projectId = pid;
+      t.date = newDate;
+      delete t.groupId;
+    }
+    changed = true;
+    if (!state.months.includes(targetMonth)) state.months.push(targetMonth);
+    const proj = state.projects.find(p => p.id === pid);
+    if (proj && !proj.months.includes(targetMonth)) proj.months.push(targetMonth);
+  });
+  if (!changed) return;
+  pruneEmptyGroups();
+  state.activeMonth = targetMonth;
+  state.anchorDate = `${targetMonth}-01`;
+  saveState();
+  render();
+}
+
 function moveTasks(ids, newProjectId, newDate, duplicate) {
   let changed = false;
   ids.forEach(id => {
@@ -998,7 +1039,10 @@ function moveTasks(ids, newProjectId, newDate, duplicate) {
     if (duplicate) {
       const copy = { ...t, id: uid(), projectId: pid, date };
       delete copy.groupId;
+      delete copy.archived;
+      delete copy.archivedAt;
       state.tasks.push(copy);
+      attachToSeries(copy);
       changed = true;
     } else {
       const sameCell = t.projectId === pid && t.date === date;
@@ -1096,8 +1140,14 @@ function startRowResize(e, projId, row) {
 function moveTaskToNextDay(taskId) {
   const t = state.tasks.find(x => x.id === taskId);
   if (!t) return;
-  t.date = addDays(t.date, 1);
-  const newMonth = t.date.slice(0,7);
+  const newDate = addDays(t.date, 1);
+  const copy = { ...t, id: uid(), date: newDate };
+  delete copy.groupId;
+  delete copy.archived;
+  delete copy.archivedAt;
+  state.tasks.push(copy);
+  attachToSeries(copy);
+  const newMonth = newDate.slice(0, 7);
   if (!state.months.includes(newMonth)) state.months.push(newMonth);
   const proj = state.projects.find(p => p.id === t.projectId);
   if (proj && !proj.months.includes(newMonth)) proj.months.push(newMonth);
@@ -1679,7 +1729,7 @@ function renderMonth() {
 
 function unfinishedTasks() {
   return state.tasks
-    .filter(t => t.status !== "done" && !t.archived && !laterDoneInSeries(t))
+    .filter(t => t.status !== "done" && !t.archived && !laterDoneInSeries(t) && !carriedForward(t))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -1829,7 +1879,7 @@ function renderUnfinishedPanel() {
       `;
       row.querySelector(".unf-title").textContent = t.title;
       row.querySelector(".unf-status").onclick = (e) => { e.stopPropagation(); cycleStatus(t.id); };
-      row.querySelector(".unf-go").onclick = (e) => { e.stopPropagation(); moveTasks([t.id], t.projectId, today, false); };
+      row.querySelector(".unf-go").onclick = (e) => { e.stopPropagation(); moveTasks([t.id], t.projectId, today, true); };
       row.querySelector(".unf-archive").onclick = (e) => { e.stopPropagation(); archiveTask(t.id); };
       row.onclick = () => {
         state.anchorDate = t.date;
@@ -1893,7 +1943,7 @@ function openArchivedTasksModal() {
             <div class="unfinished-row" data-id="${escapeHtml(t.id)}" style="grid-template-columns: 4px 22px 1fr auto auto auto; opacity:0.75;">
               <span class="unf-color" style="background:${proj ? proj.color : "#ccc"}"></span>
               <span class="unf-status">🗄</span>
-              <span class="unf-title" style="text-decoration:line-through; color:#8e8e93;">${escapeHtml(t.title)}</span>
+              <span class="unf-title" style="color:#8e8e93;">${escapeHtml(t.title)}</span>
               <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}${ago ? ` · archived ${ago}` : ""}</span>
               <button class="unf-go" data-action="unarchive" data-id="${escapeHtml(t.id)}" title="Restore to Unfinished">↺ Restore</button>
               <button class="unf-archive" data-action="delete" data-id="${escapeHtml(t.id)}" title="Delete forever" style="color:#ff3b30;">Delete</button>
@@ -2216,11 +2266,17 @@ function editGroupNameInline(gid, nameSpan) {
 function taskEl(t, proj) {
   const el = document.createElement("div");
   const completedLater = laterDoneInSeries(t);
-  el.className = "task" + (t.status === "done" ? " done" : "") + (completedLater ? " done-later" : "") + (t.archived ? " archived" : "");
+  const carried = !completedLater ? carriedForward(t) : null;
+  el.className = "task"
+    + (t.status === "done" ? " done" : "")
+    + (completedLater ? " done-later" : "")
+    + (carried ? " carried" : "")
+    + (t.archived ? " archived" : "");
   if (selectedTaskIds.has(t.id)) el.classList.add("selected");
   const inSeries = !!t.seriesId && state.tasks.some(x => x.id !== t.id && x.seriesId === t.seriesId);
   if (inSeries) el.classList.add("in-series");
   if (completedLater) el.title = `Completed on ${completedLater.date}`;
+  else if (carried) el.title = `Carried forward to ${carried.date}`;
   el.draggable = true;
   el.addEventListener("dragstart", (e) => {
     let ids;
@@ -2460,11 +2516,35 @@ function showTaskContextMenu(x, y) {
     `;
     menu.querySelector('[data-act="back"]').onclick = renderMain;
     menu.querySelectorAll(".ctx-item[data-pid]").forEach(b => {
+      b.onclick = () => renderMonthSubmenu(b.dataset.pid);
+    });
+  };
+  const renderMonthSubmenu = (pid) => {
+    const months = [...state.months].sort();
+    const monthItems = months.map(m => `<button class="ctx-item" data-m="${m}">${escapeHtml(monthLabel(m))}</button>`).join("");
+    menu.innerHTML = `
+      <button class="ctx-item" data-act="back-to-proj">‹ Back</button>
+      <div class="ctx-divider"></div>
+      <div class="ctx-label">Pick a month tab</div>
+      <button class="ctx-item" data-m="__keep__"><b>Keep current dates</b></button>
+      <div class="ctx-divider"></div>
+      <div class="ctx-scroll">${monthItems || `<div class="ctx-label">No months</div>`}</div>
+    `;
+    menu.querySelector('[data-act="back-to-proj"]').onclick = () => {
+      const projectIdsInSel = new Set(state.tasks.filter(t => selectedTaskIds.has(t.id)).map(t => t.projectId));
+      const otherProjects = state.projects.filter(p => !(projectIdsInSel.size === 1 && projectIdsInSel.has(p.id)));
+      renderMoveSubmenu(otherProjects);
+    };
+    menu.querySelectorAll(".ctx-item[data-m]").forEach(b => {
       b.onclick = () => {
-        const pid = b.dataset.pid;
+        const m = b.dataset.m;
         const ids = [...selectedTaskIds];
         closeContextMenu();
-        moveTasks(ids, pid, null, false);
+        if (m === "__keep__") {
+          moveTasks(ids, pid, null, false);
+        } else {
+          moveTasksToMonth(ids, pid, m, false);
+        }
       };
     });
   };
@@ -2782,6 +2862,143 @@ function editProjectColor(id) {
     document.body.removeChild(backdrop);
     openProjectMergeModal(proj.id);
   };
+}
+
+function mergeProjects(canonicalId, duplicateIds) {
+  const canonical = state.projects.find(p => p.id === canonicalId);
+  if (!canonical) return 0;
+  let movedTasks = 0;
+  duplicateIds.forEach(dupId => {
+    if (dupId === canonicalId) return;
+    const dup = state.projects.find(p => p.id === dupId);
+    if (!dup) return;
+    state.tasks.forEach(t => { if (t.projectId === dupId) { t.projectId = canonicalId; movedTasks++; } });
+    (dup.months || []).forEach(m => { if (!canonical.months.includes(m)) canonical.months.push(m); });
+    if (state.projectHeights && state.projectHeights[dupId]) {
+      if (!state.projectHeights[canonicalId]) state.projectHeights[canonicalId] = state.projectHeights[dupId];
+      delete state.projectHeights[dupId];
+    }
+  });
+  state.projects = state.projects.filter(p => !duplicateIds.includes(p.id) || p.id === canonicalId);
+  saveState();
+  render();
+  return movedTasks;
+}
+
+async function openProjectMergeModal(seedProjId) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.style.maxWidth = "560px";
+  modal.innerHTML = `
+    <h2>🔗 Find similar projects</h2>
+    <div id="pmStatus" style="font-size:13px; color:#6e6e73; margin-bottom:12px;">Asking AI to group your projects…</div>
+    <div id="pmGroups"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="pmClose">Close</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  const close = () => document.body.removeChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  modal.querySelector("#pmClose").onclick = close;
+
+  const key = getApiKey();
+  const statusEl = modal.querySelector("#pmStatus");
+  const groupsEl = modal.querySelector("#pmGroups");
+  const items = state.projects.map(p => ({ id: p.id, name: p.name, color: p.color }));
+  if (items.length < 2) { statusEl.textContent = "Only one project exists — nothing to merge."; return; }
+
+  let groups = [];
+  if (!key) {
+    const byName = new Map();
+    state.projects.forEach(p => {
+      const k = normTitle(p.name);
+      if (!byName.has(k)) byName.set(k, []);
+      byName.get(k).push(p.id);
+    });
+    groups = [...byName.values()].filter(arr => arr.length > 1).map(ids => ({ ids, canonical: ids[0], reason: "exact name match" }));
+  } else {
+    try {
+      const body = {
+        model: CLAUDE_MODEL,
+        max_tokens: 2000,
+        system: [{ type: "text", text: "You identify projects that refer to the same real project despite small name differences (typos, capitalization, spacing, minor wording). Return groups of project ids you're confident belong together. Only group when you're confident they're the same project — err on the side of NOT grouping. Pick one id as the canonical (prefer the most complete/correctly-spelled name)." }],
+        tools: [{
+          name: "group_projects",
+          description: "Group similar project ids.",
+          input_schema: {
+            type: "object",
+            properties: {
+              groups: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    ids: { type: "array", items: { type: "string" } },
+                    canonical: { type: "string" },
+                    reason: { type: "string" }
+                  },
+                  required: ["ids", "canonical"]
+                }
+              }
+            },
+            required: ["groups"]
+          }
+        }],
+        tool_choice: { type: "tool", name: "group_projects" },
+        messages: [{ role: "user", content: `Projects:\n${JSON.stringify(items)}` }]
+      };
+      const res = await fetch(CLAUDE_API_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const tb = (data.content || []).find(b => b.type === "tool_use");
+        groups = (tb?.input?.groups || []).filter(g => Array.isArray(g.ids) && g.ids.length >= 2);
+      }
+    } catch {}
+  }
+
+  if (groups.length === 0) { statusEl.textContent = "No similar projects found."; return; }
+
+  statusEl.textContent = `Found ${groups.length} group${groups.length > 1 ? "s" : ""} of likely-duplicate projects. Pick one as canonical and merge.`;
+  const byId = Object.fromEntries(state.projects.map(p => [p.id, p]));
+  groupsEl.innerHTML = groups.map((g, i) => {
+    const opts = g.ids.filter(id => byId[id])
+      .map(id => `<option value="${id}" ${id === g.canonical ? "selected" : ""}>${escapeHtml(byId[id].name)}</option>`).join("");
+    const preview = g.ids.filter(id => byId[id]).map(id => `
+      <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#6e6e73;">
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${byId[id].color};"></span>
+        ${escapeHtml(byId[id].name)}
+      </div>
+    `).join("");
+    return `
+      <div style="background:#f5f5f7; border-radius:8px; padding:12px; margin-bottom:10px;" data-idx="${i}">
+        <div style="margin-bottom:8px;">${preview}</div>
+        ${g.reason ? `<div style="font-size:11px; color:#8e8e93; margin-bottom:8px;">AI reason: ${escapeHtml(g.reason)}</div>` : ""}
+        <div style="display:flex; gap:8px; align-items:center;">
+          <label style="font-size:12px;">Keep as:</label>
+          <select data-role="canonical" style="flex:1; padding:4px 8px; border:1px solid #d2d2d7; border-radius:6px; font-size:13px;">${opts}</select>
+          <button class="btn" data-role="merge" style="padding:6px 12px; font-size:12px;">Merge</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+  groupsEl.querySelectorAll('[data-idx]').forEach(el => {
+    const idx = parseInt(el.getAttribute("data-idx"));
+    el.querySelector('[data-role="merge"]').onclick = () => {
+      const canonicalId = el.querySelector('[data-role="canonical"]').value;
+      const moved = mergeProjects(canonicalId, groups[idx].ids);
+      el.remove();
+      showToast(`Merged — moved ${moved} task(s) to ${byId[canonicalId]?.name || "canonical project"}`, "success");
+      if (groupsEl.children.length === 0) statusEl.textContent = "All groups merged.";
+    };
+  });
 }
 
 /* =========================================================
