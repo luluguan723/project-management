@@ -2267,11 +2267,12 @@ function taskEl(t, proj) {
   const el = document.createElement("div");
   const completedLater = laterDoneInSeries(t);
   const carried = !completedLater ? carriedForward(t) : null;
+  const onToday = isToday(t.date);
   el.className = "task"
     + (t.status === "done" ? " done" : "")
-    + (completedLater ? " done-later" : "")
-    + (carried ? " carried" : "")
-    + (t.archived ? " archived" : "");
+    + (completedLater && !onToday ? " done-later" : "")
+    + (carried && !onToday ? " carried" : "")
+    + (t.archived && !onToday ? " archived" : "");
   if (selectedTaskIds.has(t.id)) el.classList.add("selected");
   const inSeries = !!t.seriesId && state.tasks.some(x => x.id !== t.id && x.seriesId === t.seriesId);
   if (inSeries) el.classList.add("in-series");
@@ -3579,13 +3580,17 @@ async function parseImportedCSVWithAI(rows, sheetHint) {
 
   const sample = rows.slice(0, 1500);
   const truncated = rows.length > 1500 ? `\n[Note: this sheet has ${rows.length} rows; only first 1500 sent.]` : "";
-  const csvText = sample.map(r => r.map(v => String(v).replace(/\s+/g, " ").slice(0, 200)).join(" | ")).join("\n") + truncated;
+  const csvText = sample.map(r => r.map(v => {
+    let s = String(v).replace(/\r\n?/g, "\n");
+    s = s.replace(/\n+/g, " // ").replace(/[ \t]+/g, " ").trim();
+    return s.length > 500 ? s.slice(0, 500) + "…" : s;
+  }).join(" | ")).join("\n") + truncated;
 
   const today = isoDate(new Date());
   const sheetLine = sheetHint ? `Sheet name: "${sheetHint}". Use this as a hint for project name, month, year, or category.\n\n` : "";
   const system = [{
     type: "text",
-    text: "You parse spreadsheet data into a personal project manager's data model. The app has projects (name, color hex, list of active months) and tasks (title, ISO date YYYY-MM-DD, status one of todo/doing/done, and a projectName). Given pipe-separated spreadsheet rows, detect whether the first row is a header (may also be plain data) and map columns. The input may contain MULTIPLE SHEETS from one workbook; each sheet starts with a marker row formatted exactly as `### SHEET: <name>`. Treat each sheet independently — re-detect headers per sheet, and use the sheet name as a hint (e.g. it may be a project name, a month, a category, or just a tab label). Merge tasks from all sheets into a single output. Never silently drop rows — either extract them into the output, or add a clear short entry to the `questions` array describing what needs clarification (ask yes/no or multiple-choice phrasing; do NOT fabricate data when ambiguous). If a row has no date, ask. If no status, default to `todo`. If no explicit color, omit it and the app will pick one. CRITICAL DATE RULES: The spreadsheet WILL contain dates from PAST months and FUTURE months — never assume the current month or year as a default. Parse every date strictly from the data on each row. If a date is written like `3/15` or `Mar 15` without a year, infer the year from the sheet name, surrounding rows, or the file title; only fall back to the current year if there is genuinely no other signal. Do NOT collapse all tasks into the current month. Sheet names like `Jan 2026` or `2025-12` strongly indicate the month/year for every task in that sheet."
+    text: "You parse spreadsheet data into a personal project manager's data model. The app has projects (name, color hex, list of active months) and tasks (title, ISO date YYYY-MM-DD, status one of todo/doing/done, and a projectName). Given pipe-separated spreadsheet rows, detect the layout and extract every task. Layouts you must handle:\n\n(A) ROW-PER-TASK TABLES: each row is one task with columns like title/date/project/status. Detect whether the first row is a header.\n\n(B) CALENDAR GRIDS (very common): one early row contains a sequence of dates (e.g. `1/12/2026 | 1/13/2026 | 1/14/2026 …`), often preceded by a row of weekday names (`Monday | Tuesday | …`). Column A (and sometimes a few other left columns) contains PROJECT NAMES. Every non-empty cell at the intersection of a project row and a date column is a list of tasks for that project on that date. You MUST extract tasks from this layout — do NOT return zero tasks just because no header row matches a tabular schema.\n\nCELL CONTENTS: a single cell often contains MULTIPLE tasks. Where you see ` // ` inside a cell, it represents an original line break — split on it and treat each piece as a separate task. STATUS PREFIXES: when a task starts with `⬜️`, `⬜`, `☐`, `[ ]`, `□` → status `todo`; `🟡`, `🟠`, `🔵`, `⏳`, `[~]` → status `doing`; `✅`, `✔️`, `✓`, `☑`, `[x]`, `[X]` → status `done`. Strip the emoji/marker from the title.\n\nThe input may contain MULTIPLE SHEETS from one workbook; each sheet starts with a marker row formatted exactly as `### SHEET: <name>`. Treat each sheet independently — re-detect layout per sheet, and use the sheet name as a hint (project name, month, category, or tab label). Merge tasks from all sheets into a single output. Never silently drop data — either extract it into the output, or add a clear short entry to the `questions` array. If a row has no date, ask. If no status, default to `todo`. If no explicit color, omit it.\n\nCRITICAL DATE RULES: dates may span PAST and FUTURE months — never assume the current month or year as a default. Parse every date strictly from the data. For `3/15` or `Mar 15` without a year, infer from the sheet name, surrounding dates, or file title; only fall back to current year if there is genuinely no signal. Sheet names like `Jan 2026` or `2025-12` strongly indicate the month/year for every task in that sheet."
   }];
 
   const tools = [{
