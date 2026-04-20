@@ -1045,6 +1045,7 @@ function moveTasks(ids, newProjectId, newDate, duplicate) {
     if (!t) return;
     const pid = newProjectId || t.projectId;
     const date = newDate || t.date;
+    const sameCell = t.projectId === pid && t.date === date;
     if (duplicate) {
       const copy = { ...t, id: uid(), projectId: pid, date };
       delete copy.groupId;
@@ -1054,11 +1055,20 @@ function moveTasks(ids, newProjectId, newDate, duplicate) {
       attachToSeries(copy);
       changed = true;
     } else {
-      const sameCell = t.projectId === pid && t.date === date;
       if (sameCell && !t.groupId) return;
-      t.projectId = pid;
-      t.date = date;
-      delete t.groupId;
+      const carryForward = !sameCell && t.status !== "done" && t.projectId === pid && date > t.date;
+      if (carryForward) {
+        const copy = { ...t, id: uid(), projectId: pid, date };
+        delete copy.groupId;
+        delete copy.archived;
+        delete copy.archivedAt;
+        state.tasks.push(copy);
+        attachToSeries(copy);
+      } else {
+        t.projectId = pid;
+        t.date = date;
+        delete t.groupId;
+      }
       changed = true;
     }
     const m = date.slice(0, 7);
@@ -3042,6 +3052,14 @@ document.addEventListener("keydown", (e) => {
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
   e.preventDefault();
   if (e.shiftKey) redo(); else undo();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+  if (_ctxMenuEl) { e.preventDefault(); closeContextMenu(); return; }
+  if (selectedTaskIds.size > 0) { e.preventDefault(); clearSelection(); }
 });
 
 document.getElementById("todayBtn").onclick = () => {
