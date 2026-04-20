@@ -3574,6 +3574,116 @@ function parseCSV(text) {
   return rows;
 }
 
+function cellToISODate(cell, fallbackYear) {
+  if (cell == null || cell === "") return null;
+  if (cell instanceof Date && !isNaN(cell)) {
+    const y = cell.getFullYear(), m = cell.getMonth() + 1, d = cell.getDate();
+    return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  }
+  const s = String(cell).trim();
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+  if (m) {
+    const mo = parseInt(m[1], 10);
+    const da = parseInt(m[2], 10);
+    let yr = m[3] ? parseInt(m[3], 10) : fallbackYear;
+    if (yr < 100) yr += 2000;
+    if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+      return `${yr}-${String(mo).padStart(2,"0")}-${String(da).padStart(2,"0")}`;
+    }
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const yr = parseInt(m[1], 10), mo = parseInt(m[2], 10), da = parseInt(m[3], 10);
+    if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+      return `${yr}-${String(mo).padStart(2,"0")}-${String(da).padStart(2,"0")}`;
+    }
+  }
+  // Excel serial date number (days since 1899-12-30, accounting for the 1900 leap-year bug).
+  const n = Number(s);
+  if (Number.isFinite(n) && n > 20000 && n < 80000) {
+    const epoch = Date.UTC(1899, 11, 30);
+    const d = new Date(epoch + n * 86400000);
+    if (!isNaN(d)) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+  }
+  return null;
+}
+
+function detectCalendarGridDateRow(rows, fallbackYear) {
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    const r = rows[i] || [];
+    let count = 0;
+    for (const c of r) if (cellToISODate(c, fallbackYear)) count++;
+    if (count >= 4) return i;
+  }
+  return -1;
+}
+
+function inferYearFromContext(sheetHint, rows) {
+  const fromHint = String(sheetHint || "").match(/(20\d{2})/);
+  if (fromHint) return parseInt(fromHint[1], 10);
+  for (const r of rows) for (const c of r) {
+    const m = String(c || "").match(/(20\d{2})/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return new Date().getFullYear();
+}
+
+function parseCalendarGridSheet(rows, sheetHint) {
+  const fallbackYear = inferYearFromContext(sheetHint, rows);
+  const dateRowIdx = detectCalendarGridDateRow(rows, fallbackYear);
+  console.log("[grid-parser] sheet:", sheetHint, "rows:", rows.length, "date row:", dateRowIdx);
+  if (dateRowIdx < 0) return null;
+  const colToDate = {};
+  rows[dateRowIdx].forEach((cell, idx) => {
+    const iso = cellToISODate(cell, fallbackYear);
+    if (iso) colToDate[idx] = iso;
+  });
+  console.log("[grid-parser] date columns:", Object.keys(colToDate).length, "first 3 dates:", Object.values(colToDate).slice(0, 3));
+  if (Object.keys(colToDate).length === 0) return null;
+
+  const STATUS_RULES = [
+    { rx: /^(?:✅|✔️|✓|☑|\[x\]|\[X\])\s*/u, status: "done" },
+    { rx: /^(?:🟡|🟠|🔵|⏳|\[~\])\s*/u, status: "doing" },
+    { rx: /^(?:⬜️|⬜|☐|□|\[ \])\s*/u, status: "todo" }
+  ];
+
+  const tasks = [];
+  const projectNames = new Set();
+  for (let r = dateRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const projectRaw = String(row[0] || "").trim();
+    const dateColIdxs = Object.keys(colToDate);
+    const hasContent = dateColIdxs.some(idx => String(row[idx] || "").trim());
+    if (!hasContent) continue;
+    const project = projectRaw || "Notes";
+    for (const idxStr of dateColIdxs) {
+      const idx = parseInt(idxStr, 10);
+      const cell = String(row[idx] || "").replace(/\r\n?/g, "\n").trim();
+      if (!cell) continue;
+      const pieces = cell.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      for (const p of pieces) {
+        let title = p;
+        let status = "todo";
+        for (const { rx, status: st } of STATUS_RULES) {
+          if (rx.test(title)) { status = st; title = title.replace(rx, "").trim(); break; }
+        }
+        if (!title) continue;
+        tasks.push({ projectName: project, title, date: colToDate[idx], status, _sourceSheet: sheetHint });
+        projectNames.add(project);
+      }
+    }
+  }
+  console.log("[grid-parser] extracted", tasks.length, "tasks across", projectNames.size, "projects");
+  if (tasks.length === 0) return null;
+  return {
+    projects: [...projectNames].map(name => ({ name })),
+    tasks,
+    questions: [],
+    headerDetected: `calendar-grid (date row ${dateRowIdx})`,
+    _sheetNames: sheetHint ? [sheetHint] : []
+  };
+}
+
 async function parseImportedCSVWithAI(rows, sheetHint) {
   const key = getApiKey();
   if (!key) { openSettingsModal(); throw new Error("Set your Claude API key first."); }
@@ -3820,7 +3930,7 @@ async function dedupeImportPlan(plan) {
   const droppedExact = exactMatched.length;
   const droppedAI = aiMatched.length;
 
-  return { ...plan, tasks: finalTasks, _droppedExact: droppedExact, _droppedAI: droppedAI };
+  return { ...plan, tasks: finalTasks, _droppedExact: droppedExact, _droppedAI: droppedAI, _allParsedTasks: incoming };
 }
 
 async function handleSpreadsheetImport(file) {
@@ -3862,8 +3972,19 @@ async function handleSpreadsheetImport(file) {
 
 async function importSelectedSheets(sheets) {
   try {
-    showImportProgress(`Parsing ${sheets.length} sheet${sheets.length > 1 ? "s" : ""} with AI in parallel…`);
-    const parts = await Promise.all(sheets.map(async s => {
+    const aiSheets = [];
+    const preParsed = [];
+    sheets.forEach(s => {
+      const grid = parseCalendarGridSheet(s.rows, s.name);
+      if (grid) preParsed.push(grid);
+      else aiSheets.push(s);
+    });
+    if (aiSheets.length > 0) {
+      showImportProgress(`Parsing ${aiSheets.length} sheet${aiSheets.length > 1 ? "s" : ""} with AI…${preParsed.length ? ` (${preParsed.length} grid sheet${preParsed.length > 1 ? "s" : ""} parsed locally)` : ""}`);
+    } else {
+      showImportProgress(`Parsed ${preParsed.length} calendar-grid sheet${preParsed.length > 1 ? "s" : ""} locally…`);
+    }
+    const aiParts = await Promise.all(aiSheets.map(async s => {
       try {
         return await parseImportedCSVWithAI(s.rows, s.name);
       } catch (e) {
@@ -3871,6 +3992,7 @@ async function importSelectedSheets(sheets) {
         return { projects: [], tasks: [], questions: [`Sheet "${s.name}" failed to parse: ${e.message}`], headerDetected: "" };
       }
     }));
+    const parts = [...preParsed, ...aiParts];
     let plan = mergeImportPlans(parts);
     showImportProgress("Checking for duplicates…");
     plan = await dedupeImportPlan(plan);
@@ -4039,8 +4161,10 @@ function openImportPreview(plan) {
   const droppedExact = plan._droppedExact || 0;
   const droppedAI = plan._droppedAI || 0;
   const droppedTotal = droppedExact + droppedAI;
+  const parsedTotal = (plan.tasks || []).length + droppedTotal;
+  const allDropped = droppedTotal > 0 && (plan.tasks || []).length === 0;
   const dupLine = droppedTotal > 0
-    ? `<div style="color:#34c759; font-size:12px; margin-top:4px;">Skipped ${droppedTotal} duplicate(s) already in your project manager${droppedAI > 0 ? ` (${droppedExact} exact + ${droppedAI} AI-matched)` : ""}.</div>`
+    ? `<div style="color:${allDropped ? "#ff3b30" : "#34c759"}; font-size:12px; margin-top:4px;">${allDropped ? "⚠ " : ""}Parsed ${parsedTotal} task(s); skipped ${droppedTotal} as duplicate(s) of tasks already in your project manager${droppedAI > 0 ? ` (${droppedExact} exact + ${droppedAI} AI-matched)` : ""}.${allDropped ? ` Use "Import anyway" below to import all ${parsedTotal}.` : ""}</div>`
     : "";
 
   const monthCounts = {};
@@ -4088,13 +4212,21 @@ function openImportPreview(plan) {
     </div>
     <div class="modal-actions">
       <button class="btn btn-sec" id="iCancel">Cancel</button>
-      <button class="btn" id="iConfirm">${questions.length ? "Import with these answers" : "Import"}</button>
+      ${droppedTotal > 0 ? `<button class="btn btn-sec" id="iForce" title="Import the ${parsedTotal} parsed tasks ignoring duplicate detection">Import anyway (${parsedTotal})</button>` : ""}
+      <button class="btn" id="iConfirm">${questions.length ? "Import with these answers" : `Import (${(plan.tasks || []).length})`}</button>
     </div>
   `;
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
   backdrop.onclick = (e) => { if (e.target === backdrop) document.body.removeChild(backdrop); };
   modal.querySelector("#iCancel").onclick = () => document.body.removeChild(backdrop);
+  if (droppedTotal > 0) {
+    modal.querySelector("#iForce").onclick = () => {
+      document.body.removeChild(backdrop);
+      const forced = { ...plan, tasks: plan._allParsedTasks || plan.tasks, _droppedExact: 0, _droppedAI: 0 };
+      applyImportPlan(forced);
+    };
+  }
   modal.querySelector("#iConfirm").onclick = () => {
     const answers = questions.map((_, i) => modal.querySelector(`#q_${i}`).value.trim());
     document.body.removeChild(backdrop);
