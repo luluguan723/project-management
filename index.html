@@ -301,6 +301,8 @@
   .task.done .task-title { text-decoration: line-through; }
   .task.done-later { opacity: 0.45; }
   .task.done-later .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; }
+  .task.archived { opacity: 0.35; }
+  .task.archived .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; font-style: italic; }
   .task.in-series .task-title::after { content: " ↺"; color: #8e8e93; font-size: 10px; }
   .task.dragging { opacity: 0.4; }
   .task.selected {
@@ -663,7 +665,7 @@
     width: 380px;
     background: #fff;
     border-left: 1px solid #e5e5ea;
-    z-index: 9;
+    z-index: 11;
     display: flex;
     flex-direction: column;
     padding: 16px 16px 20px 16px;
@@ -700,13 +702,13 @@
   }
   .unfinished-row {
     display: grid;
-    grid-template-columns: 4px 22px 1fr auto auto;
-    gap: 10px;
+    grid-template-columns: 4px 22px 1fr auto auto auto;
+    gap: 8px;
     align-items: center;
     background: #fff;
     border: 1px solid #e5e5ea;
     border-radius: 8px;
-    padding: 8px 12px 8px 0;
+    padding: 8px 10px 8px 0;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
   }
@@ -715,17 +717,24 @@
   .unf-status { font-size: 14px; cursor: pointer; text-align: center; }
   .unf-title { font-size: 13px; color: #1d1d1f; }
   .unf-meta { font-size: 11px; color: #6e6e73; }
-  .unf-go {
+  .unf-go, .unf-archive {
     background: #f0f0f3;
     border: 1px solid #d2d2d7;
     color: #1d1d1f;
     border-radius: 6px;
-    padding: 4px 10px;
+    padding: 4px 8px;
     font-size: 11px;
     cursor: pointer;
     font-family: inherit;
   }
-  .unf-go:hover { background: #e4e4e9; }
+  .unf-go:hover, .unf-archive:hover { background: #e4e4e9; }
+  .unf-archive { color: #8e8e93; }
+  .unf-vault-btn {
+    background: transparent; border: 1px solid #d2d2d7; color: #6e6e73;
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .unf-vault-btn:hover { background: #f0f0f3; }
 </style>
 </head>
 <body>
@@ -750,7 +759,6 @@
         <option value="week" selected>Week</option>
         <option value="month">Month</option>
       </select>
-      <button class="nav-arrow" id="unfinishedToggle" title="Toggle unfinished panel">☐ Unfinished</button>
       <button class="nav-arrow" id="todayBtn">Today</button>
       <button class="gear-btn" id="settingsBtn" title="Settings">⚙</button>
     </div>
@@ -759,8 +767,9 @@
   <div class="quick-add-row">
     <span class="quick-add-icon">✨</span>
     <input class="quick-add-input" id="quickAddInput"
-      placeholder="Quick add with AI — e.g. &quot;finish slides tomorrow for Marketing&quot; (press Enter)" />
+      placeholder="Quick add — e.g. &quot;slides tomorrow for Marketing&quot;" />
     <span class="quick-add-status" id="quickAddStatus"></span>
+    <button class="nav-arrow" id="unfinishedToggle" title="Toggle unfinished panel" style="flex-shrink:0;">☐ Unfinished</button>
   </div>
 </header>
 
@@ -1669,8 +1678,30 @@ function renderMonth() {
 
 function unfinishedTasks() {
   return state.tasks
-    .filter(t => t.status !== "done" && !laterDoneInSeries(t))
+    .filter(t => t.status !== "done" && !t.archived && !laterDoneInSeries(t))
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function archivedTasks() {
+  return state.tasks
+    .filter(t => t.archived)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function archiveTask(taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  t.archived = true;
+  saveState();
+  render();
+}
+
+function unarchiveTask(taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  delete t.archived;
+  saveState();
+  render();
 }
 
 function renderUnfinishedPanel() {
@@ -1694,10 +1725,13 @@ function renderUnfinishedPanel() {
   panel.id = "unfinishedPanel";
   panel.className = "unfinished-panel";
   panel.innerHTML = "";
+  const headerEl = document.querySelector("header");
+  if (headerEl) panel.style.top = headerEl.getBoundingClientRect().height + "px";
 
   const today = isoDate(new Date());
   const overdueCount = items.filter(t => t.date < today).length;
 
+  const archivedCount = archivedTasks().length;
   const head = document.createElement("div");
   head.className = "unfinished-head";
   head.innerHTML = `
@@ -1705,7 +1739,8 @@ function renderUnfinishedPanel() {
       <div class="unfinished-title">Unfinished</div>
       <div class="unfinished-sub">${items.length} open · ${overdueCount} overdue</div>
     </div>
-    <div style="display:flex; gap:6px;">
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button class="unf-vault-btn" id="unfVaultBtn" title="View archived tasks">🗂 ${archivedCount}</button>
       <button class="btn btn-sec" id="aiTidyBtn" title="Use AI to find fuzzy duplicates that were already completed">✨ AI tidy</button>
       <button class="nav-arrow" id="closeUnfinishedBtn" title="Close panel">×</button>
     </div>
@@ -1741,10 +1776,12 @@ function renderUnfinishedPanel() {
         <span class="unf-title"></span>
         <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}${seriesNote}</span>
         <button class="unf-go" title="Move to today">→ today</button>
+        <button class="unf-archive" title="Archive — not done, but no longer relevant">Archive</button>
       `;
       row.querySelector(".unf-title").textContent = t.title;
       row.querySelector(".unf-status").onclick = (e) => { e.stopPropagation(); cycleStatus(t.id); };
       row.querySelector(".unf-go").onclick = (e) => { e.stopPropagation(); moveTasks([t.id], t.projectId, today, false); };
+      row.querySelector(".unf-archive").onclick = (e) => { e.stopPropagation(); archiveTask(t.id); };
       row.onclick = () => {
         state.anchorDate = t.date;
         state.view = "day";
@@ -1763,6 +1800,8 @@ function renderUnfinishedPanel() {
 
   const tidyBtn = document.getElementById("aiTidyBtn");
   if (tidyBtn) tidyBtn.onclick = () => aiTidyUnfinished();
+  const vaultBtn = document.getElementById("unfVaultBtn");
+  if (vaultBtn) vaultBtn.onclick = () => openArchivedTasksModal();
   const closeBtn = document.getElementById("closeUnfinishedBtn");
   if (closeBtn) closeBtn.onclick = () => toggleUnfinishedPanel(false);
 }
@@ -1771,6 +1810,62 @@ function toggleUnfinishedPanel(force) {
   state.unfinishedPanelOpen = typeof force === "boolean" ? force : !state.unfinishedPanelOpen;
   saveState();
   renderUnfinishedPanel();
+}
+
+function openArchivedTasksModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.style.maxWidth = "520px";
+
+  const renderBody = () => {
+    const items = archivedTasks();
+    if (items.length === 0) {
+      return `<div style="padding:20px; text-align:center; color:#6e6e73; font-size:13px;">No archived tasks.</div>`;
+    }
+    return `
+      <div style="max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+        ${items.map(t => {
+          const proj = state.projects.find(p => p.id === t.projectId);
+          return `
+            <div class="unfinished-row" data-id="${escapeHtml(t.id)}" style="grid-template-columns: 4px 22px 1fr auto auto; opacity:0.75;">
+              <span class="unf-color" style="background:${proj ? proj.color : "#ccc"}"></span>
+              <span class="unf-status">🗄</span>
+              <span class="unf-title" style="text-decoration:line-through; color:#8e8e93;">${escapeHtml(t.title)}</span>
+              <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}</span>
+              <button class="unf-go" data-action="unarchive" data-id="${escapeHtml(t.id)}" title="Restore to Unfinished">↺ Restore</button>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  };
+
+  const paint = () => {
+    modal.innerHTML = `
+      <h2>🗂 Archived tasks</h2>
+      <div style="font-size:12px; color:#6e6e73; margin-bottom:12px;">Tasks you archived — not done, but no longer relevant. Restore any to return them to Unfinished.</div>
+      ${renderBody()}
+      <div class="modal-actions">
+        <button class="btn btn-sec" id="atClose">Close</button>
+      </div>
+    `;
+    modal.querySelector("#atClose").onclick = close;
+    modal.querySelectorAll('[data-action="unarchive"]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        unarchiveTask(btn.getAttribute("data-id"));
+        paint();
+      };
+    });
+  };
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  const close = () => document.body.removeChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  paint();
 }
 
 async function aiTidyUnfinished() {
@@ -2013,7 +2108,7 @@ function editGroupNameInline(gid, nameSpan) {
 function taskEl(t, proj) {
   const el = document.createElement("div");
   const completedLater = laterDoneInSeries(t);
-  el.className = "task" + (t.status === "done" ? " done" : "") + (completedLater ? " done-later" : "");
+  el.className = "task" + (t.status === "done" ? " done" : "") + (completedLater ? " done-later" : "") + (t.archived ? " archived" : "");
   if (selectedTaskIds.has(t.id)) el.classList.add("selected");
   const inSeries = !!t.seriesId && state.tasks.some(x => x.id !== t.id && x.seriesId === t.seriesId);
   if (inSeries) el.classList.add("in-series");
@@ -3197,7 +3292,21 @@ async function parseImportedCSVWithAI(rows, sheetHint) {
   if (!toolBlock) throw new Error("AI did not return a proposal.");
   const result = toolBlock.input;
   if (sheetHint) {
-    (result.tasks || []).forEach(t => { t._sourceSheet = sheetHint; });
+    result.projects = result.projects || [];
+    result.tasks = result.tasks || [];
+    result.tasks.forEach(t => {
+      t._sourceSheet = sheetHint;
+      if (!t.projectName || !String(t.projectName).trim()) t.projectName = sheetHint;
+    });
+    const hasTasksFromSheet = result.tasks.some(t =>
+      t.projectName && t.projectName.toLowerCase() === sheetHint.toLowerCase()
+    );
+    const projectAlreadyListed = result.projects.some(p =>
+      p && p.name && p.name.toLowerCase() === sheetHint.toLowerCase()
+    );
+    if (hasTasksFromSheet && !projectAlreadyListed) {
+      result.projects.push({ name: sheetHint });
+    }
     result._sheetNames = [sheetHint];
   }
   return result;
@@ -3694,9 +3803,14 @@ function applyImportPlan(plan) {
   });
 
   let added = 0;
+  let droppedNoProject = 0;
   const touchedMonths = new Set();
   (plan.tasks || []).forEach(t => {
-    if (!t.title || !t.date || !t.projectName) return;
+    if (!t.title || !t.date) return;
+    if (!t.projectName || !String(t.projectName).trim()) {
+      if (t._sourceSheet) t.projectName = t._sourceSheet;
+      else { droppedNoProject++; return; }
+    }
     const key = t.projectName.toLowerCase();
     let pid = projMap[key];
     if (!pid) {
@@ -3741,7 +3855,8 @@ function applyImportPlan(plan) {
   render();
   const monthList = [...touchedMonths].sort().map(m => monthLabel(m)).join(", ");
   const monthsMsg = touchedMonths.size > 1 ? ` across ${touchedMonths.size} months (${monthList})` : (touchedMonths.size === 1 ? ` (${monthList})` : "");
-  showToast(`Imported ${added} task(s)${monthsMsg}`, "success");
+  const droppedMsg = droppedNoProject > 0 ? ` · ${droppedNoProject} skipped (no project)` : "";
+  showToast(`Imported ${added} task(s)${monthsMsg}${droppedMsg}`, "success");
 }
 
 async function handleQuickAdd(text) {
