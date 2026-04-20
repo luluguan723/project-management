@@ -657,6 +657,7 @@
   .ctx-item.danger { color: #ff3b30; }
   .task.task-drop-above { box-shadow: 0 -2px 0 #007aff; }
   .task.task-drop-below { box-shadow: 0 2px 0 #007aff; }
+  .day-cell.cell-focused { outline: 2px solid #007aff; outline-offset: -2px; background: rgba(0,122,255,0.04); }
   .unfinished-panel {
     position: fixed;
     top: 0;
@@ -1500,7 +1501,7 @@ function renderWeek() {
         cell.style.overflowY = "auto";
       }
       renderTasksInto(cell, tasksFor(proj.id, dStr), proj);
-      cell.onclick = () => startInlineAdd(cell, proj.id, dStr);
+      cell.onclick = (e) => handleCellClick(e, cell, proj.id, dStr);
       attachDropZone(cell, () => ({ projectId: proj.id, date: dStr }));
       row.appendChild(cell);
     });
@@ -1589,7 +1590,7 @@ function renderDay() {
     }
     tasksWrap.style.cursor = "text";
     tasksWrap.style.minHeight = "40px";
-    tasksWrap.onclick = () => startInlineAdd(tasksWrap, pid, dateStr);
+    tasksWrap.onclick = (e) => handleCellClick(e, tasksWrap, pid, dateStr);
     attachDropZone(block, () => ({ projectId: pid, date: dateStr }));
     block.appendChild(tasksWrap);
     wrap.appendChild(block);
@@ -1685,13 +1686,14 @@ function unfinishedTasks() {
 function archivedTasks() {
   return state.tasks
     .filter(t => t.archived)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => (b.archivedAt || "").localeCompare(a.archivedAt || "") || b.date.localeCompare(a.date));
 }
 
 function archiveTask(taskId) {
   const t = state.tasks.find(x => x.id === taskId);
   if (!t) return;
   t.archived = true;
+  t.archivedAt = new Date().toISOString();
   saveState();
   render();
 }
@@ -1700,8 +1702,55 @@ function unarchiveTask(taskId) {
   const t = state.tasks.find(x => x.id === taskId);
   if (!t) return;
   delete t.archived;
+  delete t.archivedAt;
   saveState();
   render();
+}
+
+function archiveTasks(ids) {
+  if (!ids.length) return;
+  const now = new Date().toISOString();
+  let n = 0;
+  state.tasks.forEach(t => {
+    if (ids.includes(t.id) && !t.archived) {
+      t.archived = true;
+      t.archivedAt = now;
+      n++;
+    }
+  });
+  if (!n) return;
+  saveState();
+  render();
+  showToast(`Archived ${n} task${n > 1 ? "s" : ""}`, "success");
+}
+
+function unarchiveTasks(ids) {
+  if (!ids.length) return;
+  let n = 0;
+  state.tasks.forEach(t => {
+    if (ids.includes(t.id) && t.archived) {
+      delete t.archived;
+      delete t.archivedAt;
+      n++;
+    }
+  });
+  if (!n) return;
+  saveState();
+  render();
+  showToast(`Restored ${n} task${n > 1 ? "s" : ""}`, "success");
+}
+
+function deleteArchivedTasks(ids) {
+  if (!ids.length) return;
+  const set = new Set(ids);
+  const before = state.tasks.length;
+  state.tasks = state.tasks.filter(t => !(t.archived && set.has(t.id)));
+  const removed = before - state.tasks.length;
+  if (!removed) return;
+  pruneEmptyGroups();
+  saveState();
+  render();
+  showToast(`Deleted ${removed} archived task${removed > 1 ? "s" : ""}`, "success");
 }
 
 function renderUnfinishedPanel() {
@@ -1819,6 +1868,17 @@ function openArchivedTasksModal() {
   modal.className = "modal";
   modal.style.maxWidth = "520px";
 
+  const fmtArchivedAt = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "yesterday";
+    if (days < 30) return `${days}d ago`;
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+    return `${Math.floor(days / 365)}y ago`;
+  };
+
   const renderBody = () => {
     const items = archivedTasks();
     if (items.length === 0) {
@@ -1828,13 +1888,15 @@ function openArchivedTasksModal() {
       <div style="max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
         ${items.map(t => {
           const proj = state.projects.find(p => p.id === t.projectId);
+          const ago = fmtArchivedAt(t.archivedAt);
           return `
-            <div class="unfinished-row" data-id="${escapeHtml(t.id)}" style="grid-template-columns: 4px 22px 1fr auto auto; opacity:0.75;">
+            <div class="unfinished-row" data-id="${escapeHtml(t.id)}" style="grid-template-columns: 4px 22px 1fr auto auto auto; opacity:0.75;">
               <span class="unf-color" style="background:${proj ? proj.color : "#ccc"}"></span>
               <span class="unf-status">🗄</span>
               <span class="unf-title" style="text-decoration:line-through; color:#8e8e93;">${escapeHtml(t.title)}</span>
-              <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}</span>
+              <span class="unf-meta">${escapeHtml(proj ? proj.name : "—")} · ${t.date}${ago ? ` · archived ${ago}` : ""}</span>
               <button class="unf-go" data-action="unarchive" data-id="${escapeHtml(t.id)}" title="Restore to Unfinished">↺ Restore</button>
+              <button class="unf-archive" data-action="delete" data-id="${escapeHtml(t.id)}" title="Delete forever" style="color:#ff3b30;">Delete</button>
             </div>
           `;
         }).join("")}
@@ -1843,19 +1905,44 @@ function openArchivedTasksModal() {
   };
 
   const paint = () => {
+    const items = archivedTasks();
+    const bulk = items.length > 0 ? `
+      <button class="btn btn-sec" id="atRestoreAll" type="button">↺ Restore all (${items.length})</button>
+      <button class="btn btn-sec" id="atDeleteAll" type="button" style="color:#ff3b30;">Delete all</button>
+    ` : "";
     modal.innerHTML = `
       <h2>🗂 Archived tasks</h2>
-      <div style="font-size:12px; color:#6e6e73; margin-bottom:12px;">Tasks you archived — not done, but no longer relevant. Restore any to return them to Unfinished.</div>
+      <div style="font-size:12px; color:#6e6e73; margin-bottom:12px;">Tasks you archived — not done, but no longer relevant. Restore returns them to Unfinished; Delete removes them permanently.</div>
       ${renderBody()}
-      <div class="modal-actions">
+      <div class="modal-actions" style="justify-content: space-between;">
+        <div style="display:flex; gap:6px;">${bulk}</div>
         <button class="btn btn-sec" id="atClose">Close</button>
       </div>
     `;
     modal.querySelector("#atClose").onclick = close;
+    const restoreAll = modal.querySelector("#atRestoreAll");
+    if (restoreAll) restoreAll.onclick = () => {
+      unarchiveTasks(items.map(t => t.id));
+      paint();
+    };
+    const deleteAll = modal.querySelector("#atDeleteAll");
+    if (deleteAll) deleteAll.onclick = () => {
+      if (!confirm(`Delete all ${items.length} archived task${items.length > 1 ? "s" : ""} forever? This can be undone with Cmd+Z.`)) return;
+      deleteArchivedTasks(items.map(t => t.id));
+      paint();
+    };
     modal.querySelectorAll('[data-action="unarchive"]').forEach(btn => {
       btn.onclick = (e) => {
         e.stopPropagation();
         unarchiveTask(btn.getAttribute("data-id"));
+        paint();
+      };
+    });
+    modal.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!confirm("Delete this task forever? This can be undone with Cmd+Z.")) return;
+        deleteArchivedTasks([btn.getAttribute("data-id")]);
         paint();
       };
     });
@@ -1982,6 +2069,27 @@ function startEditTitle(t, titleEl, taskRoot) {
   input.addEventListener("blur", commit);
   input.addEventListener("click", (e) => e.stopPropagation());
 }
+
+let _focusedCellKey = null;
+function clearCellFocus() {
+  document.querySelectorAll(".day-cell.cell-focused, .tasks-wrap.cell-focused").forEach(c => c.classList.remove("cell-focused"));
+  _focusedCellKey = null;
+}
+function handleCellClick(e, cell, projectId, dateStr) {
+  if (e.target.closest(".task, .task-group, .inline-add-input, button, input, textarea, select")) return;
+  const key = `${projectId}|${dateStr}`;
+  if (_focusedCellKey === key && cell.classList.contains("cell-focused")) {
+    clearCellFocus();
+    startInlineAdd(cell, projectId, dateStr);
+    return;
+  }
+  clearCellFocus();
+  cell.classList.add("cell-focused");
+  _focusedCellKey = key;
+}
+document.addEventListener("mousedown", (e) => {
+  if (!e.target.closest(".day-cell, .tasks-wrap, .inline-add-input")) clearCellFocus();
+}, true);
 
 function startInlineAdd(container, projectId, dateStr) {
   const existing = container.querySelector(".inline-add-input");
@@ -2212,10 +2320,12 @@ function updateSelectionBar() {
     document.body.appendChild(bar);
   }
   const anyGrouped = state.tasks.some(t => selectedTaskIds.has(t.id) && t.groupId);
+  const allArchived = state.tasks.filter(t => selectedTaskIds.has(t.id)).every(t => t.archived);
   bar.innerHTML = `
     <span class="sel-count">${selectedTaskIds.size} selected</span>
     <button class="btn" id="selGroup">${selectedTaskIds.size > 1 ? "Group" : "Group (need 2+)"}</button>
     ${anyGrouped ? `<button class="btn btn-sec" id="selUngroup">Ungroup</button>` : ""}
+    <button class="btn btn-sec" id="selArchive">${allArchived ? "Restore" : "Archive"}</button>
     <button class="btn btn-sec" id="selClear">Clear</button>
   `;
   const gBtn = bar.querySelector("#selGroup");
@@ -2223,6 +2333,13 @@ function updateSelectionBar() {
   if (gBtn && selectedTaskIds.size < 2) gBtn.disabled = true;
   const uBtn = bar.querySelector("#selUngroup");
   if (uBtn) uBtn.onclick = ungroupSelectedTasks;
+  bar.querySelector("#selArchive").onclick = () => {
+    const ids = [...selectedTaskIds];
+    if (allArchived) unarchiveTasks(ids);
+    else archiveTasks(ids);
+    selectedTaskIds.clear();
+    updateSelectionBar();
+  };
   bar.querySelector("#selClear").onclick = clearSelection;
 }
 
@@ -2293,11 +2410,14 @@ function showTaskContextMenu(x, y) {
     const canGroup = count >= 2;
     const projectIdsInSel = new Set(state.tasks.filter(t => selectedTaskIds.has(t.id)).map(t => t.projectId));
     const otherProjects = state.projects.filter(p => !(projectIdsInSel.size === 1 && projectIdsInSel.has(p.id)));
+    const selTasks = state.tasks.filter(t => selectedTaskIds.has(t.id));
+    const allArchived = selTasks.length > 0 && selTasks.every(t => t.archived);
     menu.innerHTML = `
       <button class="ctx-item" data-act="group" ${canGroup ? "" : "disabled"}>Group ${canGroup ? `(${count})` : "(need 2+)"}</button>
       <button class="ctx-item" data-act="ungroup">Ungroup</button>
       <button class="ctx-item" data-act="move-to" ${otherProjects.length === 0 ? "disabled" : ""}>Move to project ▸</button>
       <div class="ctx-divider"></div>
+      <button class="ctx-item" data-act="archive">${allArchived ? "Restore" : "Archive"} ${count > 1 ? `${count} tasks` : "task"}</button>
       <button class="ctx-item danger" data-act="delete">Delete ${count > 1 ? `${count} tasks` : "task"}</button>
     `;
     menu.querySelectorAll(".ctx-item").forEach(b => {
@@ -2307,6 +2427,13 @@ function showTaskContextMenu(x, y) {
         closeContextMenu();
         if (act === "group") groupSelectedTasks();
         else if (act === "ungroup") ungroupSelectedTasks();
+        else if (act === "archive") {
+          const ids = [...selectedTaskIds];
+          if (allArchived) unarchiveTasks(ids);
+          else archiveTasks(ids);
+          selectedTaskIds.clear();
+          updateSelectionBar();
+        }
         else if (act === "delete") {
           const ids = [...selectedTaskIds];
           if (!confirm(`Delete ${ids.length} task${ids.length > 1 ? "s" : ""}?`)) return;
@@ -2622,7 +2749,12 @@ function editProjectColor(id) {
       </div>
       <div style="font-size:11px; color:#6e6e73; margin-top:6px;">Accepts #RGB or #RRGGBB.</div>
     </div>
+    <div style="font-size:11px; color:#6e6e73; margin-top:-6px; margin-bottom:12px;">
+      Saving applies this color to every project with the same name (across all month tabs).
+    </div>
     <div class="modal-actions">
+      <button class="btn btn-sec" id="pAiMerge" title="Use AI to find similar-named projects (typos, variants) and merge them into one">🔗 Find similar (AI)</button>
+      <div style="flex:1;"></div>
       <button class="btn btn-sec" id="pCancel">Cancel</button>
       <button class="btn" id="pSave">Save</button>
     </div>
@@ -2635,10 +2767,20 @@ function editProjectColor(id) {
   modal.querySelector("#pSave").onclick = () => {
     const color = normalizeHex(getColor());
     if (!color) { alert("Enter a valid hex color like #007aff"); return; }
-    proj.color = color;
+    const target = normTitle(proj.name);
+    let count = 0;
+    state.projects.forEach(p => {
+      if (normTitle(p.name) === target) { p.color = color; count++; }
+    });
     saveState();
     document.body.removeChild(backdrop);
     render();
+    if (count > 1) showToast(`Applied color to ${count} projects with the same name`, "success");
+  };
+  const aiMergeBtn = modal.querySelector("#pAiMerge");
+  if (aiMergeBtn) aiMergeBtn.onclick = () => {
+    document.body.removeChild(backdrop);
+    openProjectMergeModal(proj.id);
   };
 }
 
