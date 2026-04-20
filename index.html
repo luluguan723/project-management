@@ -52,6 +52,43 @@
   }
   .month-tab:hover { color: #1d1d1f; }
   .month-tab.active { color: #1d1d1f; border-bottom-color: #1d1d1f; background: #e4e4e9; }
+  .month-tab[draggable="true"] { position: relative; padding-right: 28px; }
+  .month-tab .month-close {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    line-height: 14px;
+    text-align: center;
+    border: none;
+    background: transparent;
+    color: #8e8e93;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.1s, background 0.1s, color 0.1s;
+  }
+  .month-tab:hover .month-close { opacity: 1; }
+  .month-tab .month-close:hover { background: #ff3b30; color: #fff; }
+  .month-tab.dragging-tab { opacity: 0.4; }
+  .month-tab.tab-drop-before { box-shadow: -2px 0 0 #007aff; }
+  .month-tab.tab-drop-after { box-shadow: 2px 0 0 #007aff; }
+  .rubber-band {
+    position: absolute;
+    background: rgba(0, 122, 255, 0.12);
+    border: 1px solid rgba(0, 122, 255, 0.55);
+    pointer-events: none;
+    z-index: 250;
+    border-radius: 2px;
+  }
+  body.rb-active { user-select: none; cursor: crosshair; }
+  .ctx-divider { height: 1px; background: #e5e5ea; margin: 4px 6px; }
+  .ctx-label { font-size: 11px; color: #8e8e93; padding: 4px 12px 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ctx-scroll { max-height: 220px; overflow-y: auto; }
   .view-select {
     padding: 7px 28px 7px 12px;
     background: #f0f0f3;
@@ -264,7 +301,7 @@
   .task.done .task-title { text-decoration: line-through; }
   .task.done-later { opacity: 0.45; }
   .task.done-later .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; }
-  .task.in-series .task-title::before { content: "↺ "; color: #8e8e93; font-size: 10px; }
+  .task.in-series .task-title::after { content: " ↺"; color: #8e8e93; font-size: 10px; }
   .task.dragging { opacity: 0.4; }
   .task.selected {
     outline: 2px solid #007aff;
@@ -1025,9 +1062,14 @@ function startRowResize(e, projId, row) {
   const startH = row.getBoundingClientRect().height;
   const cells = row.querySelectorAll(".day-cell, .project-label");
   const onMove = (ev) => {
-    const newH = Math.max(40, startH + (ev.clientY - startY));
+    const newH = Math.max(28, startH + (ev.clientY - startY));
+    row.style.height = newH + "px";
     row.style.minHeight = newH + "px";
-    cells.forEach(el => el.style.minHeight = newH + "px");
+    cells.forEach(el => {
+      el.style.height = newH + "px";
+      el.style.minHeight = newH + "px";
+      if (el.classList.contains("day-cell")) el.style.overflowY = "auto";
+    });
   };
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);
@@ -1097,12 +1139,30 @@ function renderHeaderIdentity() {
 }
 
 function renderMonthTabs() {
-  state.months.sort();
   monthTabsEl.innerHTML = "";
   state.months.forEach(m => {
-    const btn = document.createElement("button");
+    const btn = document.createElement("div");
     btn.className = "month-tab" + (m === state.activeMonth ? " active" : "");
-    btn.textContent = monthLabel(m);
+    btn.setAttribute("role", "tab");
+    btn.tabIndex = 0;
+    btn.draggable = true;
+    btn.dataset.monthKey = m;
+    btn.title = "Drag to reorder · right-click to delete";
+    const label = document.createElement("span");
+    label.className = "month-tab-label";
+    label.textContent = monthLabel(m);
+    btn.appendChild(label);
+
+    const close = document.createElement("span");
+    close.className = "month-close";
+    close.setAttribute("role", "button");
+    close.setAttribute("aria-label", "Delete month");
+    close.textContent = "×";
+    close.title = "Delete this month";
+    close.onclick = (e) => { e.stopPropagation(); deleteMonth(m); };
+    close.onmousedown = (e) => { e.stopPropagation(); };
+    btn.appendChild(close);
+
     btn.onclick = () => {
       state.activeMonth = m;
       const [y, mm] = m.split("-").map(Number);
@@ -1113,23 +1173,176 @@ function renderMonthTabs() {
       saveState();
       render();
     };
+    btn.oncontextmenu = (e) => {
+      e.preventDefault();
+      if (confirm(`Delete "${monthLabel(m)}"? Tasks scheduled in this month will be removed.`)) deleteMonth(m, true);
+    };
+
+    btn.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/pm-month", m);
+      e.dataTransfer.effectAllowed = "move";
+      btn.classList.add("dragging-tab");
+    });
+    btn.addEventListener("dragend", () => btn.classList.remove("dragging-tab"));
+    btn.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes("text/pm-month")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const r = btn.getBoundingClientRect();
+      const before = (e.clientX - r.left) < r.width / 2;
+      btn.classList.toggle("tab-drop-before", before);
+      btn.classList.toggle("tab-drop-after", !before);
+    });
+    btn.addEventListener("dragleave", (e) => {
+      if (!btn.contains(e.relatedTarget)) btn.classList.remove("tab-drop-before", "tab-drop-after");
+    });
+    btn.addEventListener("drop", (e) => {
+      const src = e.dataTransfer.getData("text/pm-month");
+      btn.classList.remove("tab-drop-before", "tab-drop-after");
+      if (!src) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const r = btn.getBoundingClientRect();
+      const before = (e.clientX - r.left) < r.width / 2;
+      reorderMonth(src, m, before ? "before" : "after");
+    });
+
     monthTabsEl.appendChild(btn);
   });
   const addBtn = document.createElement("button");
   addBtn.className = "month-tab";
   addBtn.textContent = "+ Month";
-  addBtn.onclick = () => {
-    const last = state.months.sort().slice(-1)[0] || monthKey(new Date());
-    const [y,m] = last.split("-").map(Number);
-    const d = new Date(y, m, 1);
-    const nk = monthKey(d);
-    if (!state.months.includes(nk)) state.months.push(nk);
-    state.activeMonth = nk;
-    state.anchorDate = isoDate(d);
-    saveState();
-    render();
-  };
+  addBtn.title = "Add the next future month";
+  addBtn.onclick = () => addNextFutureMonth();
   monthTabsEl.appendChild(addBtn);
+
+  const caretBtn = document.createElement("button");
+  caretBtn.className = "month-tab";
+  caretBtn.textContent = "▾";
+  caretBtn.title = "Pick a specific month (past or future)";
+  caretBtn.style.padding = "8px 8px";
+  caretBtn.onclick = (e) => { e.stopPropagation(); openMonthPickerDropdown(caretBtn); };
+  monthTabsEl.appendChild(caretBtn);
+}
+
+function carryProjectsToMonth(targetMonth, sourceMonth) {
+  if (!sourceMonth || sourceMonth === targetMonth) return;
+  state.projects.forEach(p => {
+    if (p.months.includes(sourceMonth) && !p.months.includes(targetMonth)) {
+      p.months.push(targetMonth);
+    }
+  });
+}
+
+function deleteMonth(m, skipConfirm = false) {
+  if (state.months.length <= 1) {
+    alert("Can't delete the only month — add another month first.");
+    return;
+  }
+  const taskCount = state.tasks.filter(t => sameMonth(t.date, m)).length;
+  if (!skipConfirm) {
+    const msg = `Delete "${monthLabel(m)}"?` + (taskCount ? ` ${taskCount} task${taskCount > 1 ? "s" : ""} in this month will be removed.` : "");
+    if (!confirm(msg)) return;
+  }
+  state.months = state.months.filter(x => x !== m);
+  state.tasks = state.tasks.filter(t => !sameMonth(t.date, m));
+  state.projects.forEach(p => { p.months = p.months.filter(x => x !== m); });
+  state.projects = state.projects.filter(p => p.months.length > 0);
+  if (state.activeMonth === m) {
+    const fallback = state.months.slice().sort().reverse().find(x => x <= m) || state.months[0];
+    state.activeMonth = fallback;
+    const [y, mm] = fallback.split("-").map(Number);
+    state.anchorDate = isoDate(new Date(y, mm-1, 1));
+  }
+  selectedTaskIds.clear();
+  pruneEmptyGroups();
+  saveState();
+  render();
+}
+
+function reorderMonth(srcKey, destKey, mode) {
+  if (srcKey === destKey) return;
+  const srcIdx = state.months.indexOf(srcKey);
+  if (srcIdx < 0) return;
+  state.months.splice(srcIdx, 1);
+  const destIdx = state.months.indexOf(destKey);
+  if (destIdx < 0) {
+    state.months.push(srcKey);
+  } else {
+    const insertAt = destIdx + (mode === "after" ? 1 : 0);
+    state.months.splice(insertAt, 0, srcKey);
+  }
+  saveState();
+  render();
+}
+
+function addNextFutureMonth() {
+  const sorted = [...state.months].sort();
+  const last = sorted.slice(-1)[0] || monthKey(new Date());
+  const [y, m] = last.split("-").map(Number);
+  const d = new Date(y, m, 1);
+  const nk = monthKey(d);
+  const source = state.activeMonth || last;
+  if (!state.months.includes(nk)) state.months.push(nk);
+  carryProjectsToMonth(nk, source);
+  state.activeMonth = nk;
+  state.anchorDate = isoDate(d);
+  saveState();
+  render();
+}
+
+function openMonthPickerDropdown(anchor) {
+  document.querySelectorAll(".month-picker-menu").forEach(el => el.remove());
+
+  const menu = document.createElement("div");
+  menu.className = "month-picker-menu";
+  menu.style.cssText = "position:absolute; background:#fff; border:1px solid #d2d2d7; border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,0.15); padding:4px 0; max-height:320px; overflow-y:auto; z-index:1000; min-width:160px; font-size:13px;";
+
+  const today = new Date();
+  const opts = [];
+  for (let offset = 24; offset >= -36; offset--) {
+    const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    opts.push(monthKey(d));
+  }
+  const seen = new Set();
+  opts.forEach(opt => {
+    if (seen.has(opt)) return;
+    seen.add(opt);
+    const item = document.createElement("div");
+    const exists = state.months.includes(opt);
+    item.textContent = monthLabel(opt) + (exists ? "  ✓" : "");
+    item.style.cssText = `padding:6px 14px; cursor:pointer; ${exists ? "color:#8e8e93;" : ""}`;
+    item.onmouseenter = () => item.style.background = "#f5f5f7";
+    item.onmouseleave = () => item.style.background = "";
+    item.onclick = () => {
+      menu.remove();
+      const source = state.activeMonth;
+      const isNew = !state.months.includes(opt);
+      if (isNew) state.months.push(opt);
+      if (isNew) carryProjectsToMonth(opt, source);
+      state.activeMonth = opt;
+      const [y, m] = opt.split("-").map(Number);
+      state.anchorDate = isoDate(new Date(y, m-1, 1));
+      saveState();
+      render();
+    };
+    menu.appendChild(item);
+  });
+
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 4) + "px";
+  menu.style.left = Math.max(8, rect.left - 60) + "px";
+
+  setTimeout(() => {
+    const close = (e) => {
+      if (!menu.contains(e.target) && e.target !== anchor) {
+        menu.remove();
+        document.removeEventListener("click", close);
+      }
+    };
+    document.addEventListener("click", close);
+  }, 0);
 }
 
 function renderViewSwitcher() {
@@ -1196,7 +1409,10 @@ function renderWeek() {
     if (!hasTasks) row.classList.add("empty-row");
     row.style.gridTemplateColumns = cols;
     const savedH = state.projectHeights && state.projectHeights[proj.id];
-    if (savedH) row.style.minHeight = savedH + "px";
+    if (savedH) {
+      row.style.height = savedH + "px";
+      row.style.minHeight = savedH + "px";
+    }
 
     const label = document.createElement("div");
     label.className = "project-label";
@@ -1269,7 +1485,11 @@ function renderWeek() {
       const cell = document.createElement("div");
       cell.className = "day-cell" + (isToday(dStr) ? " today" : "");
       cell.style.cursor = "text";
-      if (savedH) cell.style.minHeight = savedH + "px";
+      if (savedH) {
+        cell.style.height = savedH + "px";
+        cell.style.minHeight = savedH + "px";
+        cell.style.overflowY = "auto";
+      }
       renderTasksInto(cell, tasksFor(proj.id, dStr), proj);
       cell.onclick = () => startInlineAdd(cell, proj.id, dStr);
       attachDropZone(cell, () => ({ projectId: proj.id, date: dStr }));
@@ -1424,10 +1644,16 @@ function renderMonth() {
       cell.appendChild(mm);
     }
     cell.onclick = () => {
+      const newMonth = dateStr.slice(0,7);
+      const source = state.activeMonth;
+      const isNew = !state.months.includes(newMonth);
+      if (isNew) {
+        state.months.push(newMonth);
+        carryProjectsToMonth(newMonth, source);
+      }
       state.anchorDate = dateStr;
       state.view = "day";
-      if (!state.months.includes(dateStr.slice(0,7))) state.months.push(dateStr.slice(0,7));
-      state.activeMonth = dateStr.slice(0,7);
+      state.activeMonth = newMonth;
       saveState();
       render();
     };
@@ -1967,13 +2193,60 @@ function showTaskContextMenu(x, y) {
   closeContextMenu();
   const menu = document.createElement("div");
   menu.className = "ctx-menu";
-  const count = selectedTaskIds.size;
-  const canGroup = count >= 2;
-  menu.innerHTML = `
-    <button class="ctx-item" data-act="group" ${canGroup ? "" : "disabled"}>Group ${canGroup ? `(${count})` : "(need 2+)"}</button>
-    <button class="ctx-item" data-act="ungroup">Ungroup</button>
-    <button class="ctx-item danger" data-act="delete">Delete ${count > 1 ? `${count} tasks` : "task"}</button>
-  `;
+  const renderMain = () => {
+    const count = selectedTaskIds.size;
+    const canGroup = count >= 2;
+    const projectIdsInSel = new Set(state.tasks.filter(t => selectedTaskIds.has(t.id)).map(t => t.projectId));
+    const otherProjects = state.projects.filter(p => !(projectIdsInSel.size === 1 && projectIdsInSel.has(p.id)));
+    menu.innerHTML = `
+      <button class="ctx-item" data-act="group" ${canGroup ? "" : "disabled"}>Group ${canGroup ? `(${count})` : "(need 2+)"}</button>
+      <button class="ctx-item" data-act="ungroup">Ungroup</button>
+      <button class="ctx-item" data-act="move-to" ${otherProjects.length === 0 ? "disabled" : ""}>Move to project ▸</button>
+      <div class="ctx-divider"></div>
+      <button class="ctx-item danger" data-act="delete">Delete ${count > 1 ? `${count} tasks` : "task"}</button>
+    `;
+    menu.querySelectorAll(".ctx-item").forEach(b => {
+      b.onclick = () => {
+        const act = b.dataset.act;
+        if (act === "move-to") { renderMoveSubmenu(otherProjects); return; }
+        closeContextMenu();
+        if (act === "group") groupSelectedTasks();
+        else if (act === "ungroup") ungroupSelectedTasks();
+        else if (act === "delete") {
+          const ids = [...selectedTaskIds];
+          if (!confirm(`Delete ${ids.length} task${ids.length > 1 ? "s" : ""}?`)) return;
+          state.tasks = state.tasks.filter(t => !selectedTaskIds.has(t.id));
+          pruneEmptyGroups();
+          selectedTaskIds.clear();
+          saveState();
+          render();
+        }
+      };
+    });
+  };
+  const renderMoveSubmenu = (projs) => {
+    const items = projs.map(p =>
+      `<button class="ctx-item" data-pid="${p.id}">
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${p.color}; margin-right:8px; vertical-align:middle;"></span>${escapeHtml(p.name)}
+      </button>`
+    ).join("");
+    menu.innerHTML = `
+      <button class="ctx-item" data-act="back">‹ Back</button>
+      <div class="ctx-divider"></div>
+      <div class="ctx-label">Move to project</div>
+      <div class="ctx-scroll">${items || `<div class="ctx-label">No other projects</div>`}</div>
+    `;
+    menu.querySelector('[data-act="back"]').onclick = renderMain;
+    menu.querySelectorAll(".ctx-item[data-pid]").forEach(b => {
+      b.onclick = () => {
+        const pid = b.dataset.pid;
+        const ids = [...selectedTaskIds];
+        closeContextMenu();
+        moveTasks(ids, pid, null, false);
+      };
+    });
+  };
+  renderMain();
   menu.style.left = "0px";
   menu.style.top = "0px";
   document.body.appendChild(menu);
@@ -1981,23 +2254,6 @@ function showTaskContextMenu(x, y) {
   const vw = window.innerWidth, vh = window.innerHeight;
   menu.style.left = Math.min(x, vw - rect.width - 4) + "px";
   menu.style.top = Math.min(y, vh - rect.height - 4) + "px";
-  menu.querySelectorAll(".ctx-item").forEach(b => {
-    b.onclick = () => {
-      const act = b.dataset.act;
-      closeContextMenu();
-      if (act === "group") groupSelectedTasks();
-      else if (act === "ungroup") ungroupSelectedTasks();
-      else if (act === "delete") {
-        const ids = [...selectedTaskIds];
-        if (!confirm(`Delete ${ids.length} task${ids.length > 1 ? "s" : ""}?`)) return;
-        state.tasks = state.tasks.filter(t => !selectedTaskIds.has(t.id));
-        pruneEmptyGroups();
-        selectedTaskIds.clear();
-        saveState();
-        render();
-      }
-    };
-  });
   _ctxMenuEl = menu;
   setTimeout(() => {
     document.addEventListener("mousedown", _ctxOutside, true);
@@ -2387,15 +2643,19 @@ function openSettingsModal() {
       </div>
     </div>
     <div class="form-group">
-      <label>Account</label>
+      <label>Account (Supabase sync)</label>
       <div style="font-size:13px; color:#1d1d1f; margin-bottom:8px;">
-        ${currentUser ? `Signed in as <b>${escapeHtml(currentUser.email)}</b>` : "Not signed in"}
+        ${currentUser ? `Signed in as <b>${escapeHtml(currentUser.email)}</b>` : "Not signed in — your data is local to this browser only."}
       </div>
-      <div style="display:flex; gap:6px;">
-        <button class="btn btn-sec" id="sPull" type="button" style="flex:1;" ${currentUser ? "" : "disabled"}>⬇ Pull from cloud</button>
-        <button class="btn btn-sec" id="sPush" type="button" style="flex:1;" ${currentUser ? "" : "disabled"}>⬆ Push now</button>
-        <button class="btn btn-sec" id="sSignOut" type="button" style="flex:1;" ${currentUser ? "" : "disabled"}>Sign out</button>
-      </div>
+      ${currentUser ? `
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-sec" id="sPull" type="button" style="flex:1;">⬇ Pull from cloud</button>
+          <button class="btn btn-sec" id="sPush" type="button" style="flex:1;">⬆ Push now</button>
+          <button class="btn btn-sec" id="sSignOut" type="button" style="flex:1;">Sign out</button>
+        </div>
+      ` : `
+        <button class="btn" id="sSignIn" type="button" style="width:100%;">Sign in / create account</button>
+      `}
     </div>
     <div class="form-group">
       <label>Backup & import</label>
@@ -2449,6 +2709,11 @@ function openSettingsModal() {
     modal.querySelector("#sSignOut").onclick = async () => {
       document.body.removeChild(backdrop);
       await signOut();
+    };
+  } else {
+    modal.querySelector("#sSignIn").onclick = () => {
+      document.body.removeChild(backdrop);
+      openAuthModal();
     };
   }
   modal.querySelector("#sSave").onclick = () => {
@@ -2854,17 +3119,19 @@ function parseCSV(text) {
   return rows;
 }
 
-async function parseImportedCSVWithAI(rows) {
+async function parseImportedCSVWithAI(rows, sheetHint) {
   const key = getApiKey();
   if (!key) { openSettingsModal(); throw new Error("Set your Claude API key first."); }
 
-  const sample = rows.slice(0, 120);
-  const csvText = sample.map(r => r.map(v => String(v).replace(/\s+/g, " ").slice(0, 200)).join(" | ")).join("\n");
+  const sample = rows.slice(0, 1500);
+  const truncated = rows.length > 1500 ? `\n[Note: this sheet has ${rows.length} rows; only first 1500 sent.]` : "";
+  const csvText = sample.map(r => r.map(v => String(v).replace(/\s+/g, " ").slice(0, 200)).join(" | ")).join("\n") + truncated;
 
   const today = isoDate(new Date());
+  const sheetLine = sheetHint ? `Sheet name: "${sheetHint}". Use this as a hint for project name, month, year, or category.\n\n` : "";
   const system = [{
     type: "text",
-    text: "You parse spreadsheet data into a personal project manager's data model. The app has projects (name, color hex, list of active months) and tasks (title, ISO date YYYY-MM-DD, status one of todo/doing/done, and a projectName). Given pipe-separated spreadsheet rows, detect whether the first row is a header (may also be plain data) and map columns. The input may contain MULTIPLE SHEETS from one workbook; each sheet starts with a marker row formatted exactly as `### SHEET: <name>`. Treat each sheet independently — re-detect headers per sheet, and use the sheet name as a hint (e.g. it may be a project name, a month, a category, or just a tab label). Merge tasks from all sheets into a single output. Never silently drop rows — either extract them into the output, or add a clear short entry to the `questions` array describing what needs clarification (ask yes/no or multiple-choice phrasing; do NOT fabricate data when ambiguous). If a row has no date, ask. If no status, default to `todo`. If no explicit color, omit it and the app will pick one."
+    text: "You parse spreadsheet data into a personal project manager's data model. The app has projects (name, color hex, list of active months) and tasks (title, ISO date YYYY-MM-DD, status one of todo/doing/done, and a projectName). Given pipe-separated spreadsheet rows, detect whether the first row is a header (may also be plain data) and map columns. The input may contain MULTIPLE SHEETS from one workbook; each sheet starts with a marker row formatted exactly as `### SHEET: <name>`. Treat each sheet independently — re-detect headers per sheet, and use the sheet name as a hint (e.g. it may be a project name, a month, a category, or just a tab label). Merge tasks from all sheets into a single output. Never silently drop rows — either extract them into the output, or add a clear short entry to the `questions` array describing what needs clarification (ask yes/no or multiple-choice phrasing; do NOT fabricate data when ambiguous). If a row has no date, ask. If no status, default to `todo`. If no explicit color, omit it and the app will pick one. CRITICAL DATE RULES: The spreadsheet WILL contain dates from PAST months and FUTURE months — never assume the current month or year as a default. Parse every date strictly from the data on each row. If a date is written like `3/15` or `Mar 15` without a year, infer the year from the sheet name, surrounding rows, or the file title; only fall back to the current year if there is genuinely no other signal. Do NOT collapse all tasks into the current month. Sheet names like `Jan 2026` or `2025-12` strongly indicate the month/year for every task in that sheet."
   }];
 
   const tools = [{
@@ -2911,7 +3178,7 @@ async function parseImportedCSVWithAI(rows) {
     system,
     tools,
     tool_choice: { type: "tool", name: "propose_import" },
-    messages: [{ role: "user", content: `Today is ${today}. Parse this spreadsheet:\n\n${csvText}` }]
+    messages: [{ role: "user", content: `Today is ${today}. ${sheetLine}Parse this spreadsheet:\n\n${csvText}` }]
   };
 
   const res = await fetch(CLAUDE_API_URL, {
@@ -2928,36 +3195,334 @@ async function parseImportedCSVWithAI(rows) {
   const data = await res.json();
   const toolBlock = (data.content || []).find(b => b.type === "tool_use");
   if (!toolBlock) throw new Error("AI did not return a proposal.");
-  return toolBlock.input;
+  const result = toolBlock.input;
+  if (sheetHint) {
+    (result.tasks || []).forEach(t => { t._sourceSheet = sheetHint; });
+    result._sheetNames = [sheetHint];
+  }
+  return result;
+}
+
+function mergeImportPlans(parts) {
+  const projects = [];
+  const projSeen = new Set();
+  const tasks = [];
+  const questions = [];
+  const headers = [];
+  const sheetNames = [];
+  parts.forEach(p => {
+    if (!p) return;
+    (p.projects || []).forEach(pr => {
+      const key = String(pr.name || "").toLowerCase();
+      if (key && !projSeen.has(key)) {
+        projSeen.add(key);
+        projects.push(pr);
+      }
+    });
+    tasks.push(...(p.tasks || []));
+    questions.push(...(p.questions || []));
+    if (p.headerDetected) headers.push(p.headerDetected);
+    if (Array.isArray(p._sheetNames)) sheetNames.push(...p._sheetNames);
+  });
+  return { projects, tasks, questions, headerDetected: headers.join(" | "), _sheetNames: sheetNames };
+}
+
+function showImportProgress(label) {
+  let modal = document.getElementById("importProgress");
+  if (!modal) {
+    if (!document.getElementById("ipPulseStyle")) {
+      const s = document.createElement("style");
+      s.id = "ipPulseStyle";
+      s.textContent = `
+        @keyframes ipSlide { 0% { left: -40%; } 100% { left: 100%; } }
+        #importProgress .ip-track { position: relative; height: 6px; background: #e8e8ed; border-radius: 3px; overflow: hidden; margin-top: 14px; }
+        #importProgress .ip-bar { position: absolute; top: 0; height: 100%; width: 40%; background: #0071e3; border-radius: 3px; animation: ipSlide 1.3s ease-in-out infinite; }
+      `;
+      document.head.appendChild(s);
+    }
+    modal = document.createElement("div");
+    modal.id = "importProgress";
+    modal.className = "modal-backdrop";
+    modal.innerHTML = `
+      <div class="modal" style="max-width:340px; text-align:center; pointer-events:none;">
+        <div style="font-size:14px; font-weight:600;" id="ipLabel"></div>
+        <div class="ip-track"><div class="ip-bar"></div></div>
+        <div style="font-size:11px; color:#8e8e93; margin-top:10px;">This may take a few seconds…</div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+  document.getElementById("ipLabel").textContent = label;
+}
+
+function hideImportProgress() {
+  const m = document.getElementById("importProgress");
+  if (m) m.remove();
+}
+
+async function dedupeImportPlan(plan) {
+  const incoming = (plan.tasks || []).filter(t => t && t.title && t.date && t.projectName);
+  if (incoming.length === 0) return plan;
+
+  const projNameById = {};
+  state.projects.forEach(p => { projNameById[p.id] = p.name; });
+  const exactKey = (proj, date, title) => `${String(proj || "").toLowerCase()}|${date}|${normTitle(title)}`;
+  const existingByKey = new Map();
+  state.tasks.forEach(t => {
+    const pname = projNameById[t.projectId] || "";
+    existingByKey.set(exactKey(pname, t.date, t.title), t.id);
+  });
+
+  const exactMatched = [];
+  const survivors = [];
+  incoming.forEach(t => {
+    const k = exactKey(t.projectName, t.date, t.title);
+    if (existingByKey.has(k)) {
+      exactMatched.push({ idx: -1, existingId: existingByKey.get(k), reason: "exact match" });
+    } else {
+      survivors.push(t);
+    }
+  });
+
+  let aiMatched = [];
+  const key = getApiKey();
+  if (survivors.length > 0 && key) {
+    const incomingProjects = new Set(survivors.map(t => String(t.projectName).toLowerCase()));
+    const scopedExisting = state.tasks
+      .filter(t => incomingProjects.has((projNameById[t.projectId] || "").toLowerCase()))
+      .map(t => ({ id: t.id, projectName: projNameById[t.projectId] || "", title: t.title, date: t.date, status: t.status }));
+
+    if (scopedExisting.length > 0) {
+      try {
+        const body = {
+          model: CLAUDE_MODEL,
+          max_tokens: 2000,
+          system: [{ type: "text", text: "You compare incoming tasks against existing tasks in a project manager. Identify true duplicates ONLY when ALL of these match: (1) same project, (2) the same logical task wording, AND (3) the EXACT SAME date (YYYY-MM-DD). If the dates differ — even by one day, even if it looks like a carry-over or recurrence — they are NOT duplicates. Tasks in different months are NEVER duplicates of each other. Be conservative: when in doubt, do NOT mark as duplicate." }],
+          tools: [{
+            name: "dedupe",
+            description: "Mark incoming tasks that already exist.",
+            input_schema: {
+              type: "object",
+              properties: {
+                duplicates: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      idx: { type: "integer", description: "Index in the incoming array" },
+                      existingId: { type: "string", description: "id of the matching existing task" },
+                      reason: { type: "string" }
+                    },
+                    required: ["idx", "existingId"]
+                  }
+                }
+              },
+              required: ["duplicates"]
+            }
+          }],
+          tool_choice: { type: "tool", name: "dedupe" },
+          messages: [{
+            role: "user",
+            content: `Incoming tasks (by index):\n${JSON.stringify(survivors.map((t, i) => ({ idx: i, projectName: t.projectName, title: t.title, date: t.date, status: t.status })))}\n\nExisting tasks:\n${JSON.stringify(scopedExisting)}`
+          }]
+        };
+        const res = await fetch(CLAUDE_API_URL, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify(body)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const tb = (data.content || []).find(b => b.type === "tool_use");
+          if (tb && Array.isArray(tb.input?.duplicates)) {
+            aiMatched = tb.input.duplicates.filter(d => Number.isInteger(d.idx) && d.idx >= 0 && d.idx < survivors.length);
+          }
+        }
+      } catch {}
+    }
+  }
+
+  const aiDropIdx = new Set(aiMatched.map(d => d.idx));
+  const finalTasks = survivors.filter((_, i) => !aiDropIdx.has(i));
+  const droppedExact = exactMatched.length;
+  const droppedAI = aiMatched.length;
+
+  return { ...plan, tasks: finalTasks, _droppedExact: droppedExact, _droppedAI: droppedAI };
 }
 
 async function handleSpreadsheetImport(file) {
   try {
     const name = (file.name || "").toLowerCase();
-    let rows = [];
     if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
       if (typeof XLSX === "undefined") throw new Error("XLSX library not loaded.");
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
-      wb.SheetNames.forEach((sheetName, i) => {
+
+      const sheets = [];
+      wb.SheetNames.forEach(sheetName => {
         const sheet = wb.Sheets[sheetName];
         const sheetRows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
-        if (!sheetRows.length) return;
-        if (i > 0) rows.push([]);
-        rows.push([`### SHEET: ${sheetName}`]);
-        rows.push(...sheetRows);
+        if (sheetRows.length) sheets.push({ name: sheetName, rows: sheetRows });
       });
+      if (sheets.length === 0) { showToast("Empty file", "error"); return; }
+
+      if (sheets.length === 1) {
+        await importSelectedSheets(sheets);
+        return;
+      }
+
+      showImportProgress(`Scanning ${sheets.length} sheets…`);
+      const summaries = await aiSummarizeSheets(sheets);
+      hideImportProgress();
+      openSheetSelectionModal(sheets, summaries, (selected) => importSelectedSheets(selected));
     } else {
       const text = await file.text();
-      rows = parseCSV(text);
+      const rows = parseCSV(text);
+      if (rows.length === 0) { showToast("Empty file", "error"); return; }
+      await importSelectedSheets([{ name: file.name || "CSV", rows }]);
     }
-    if (!rows || rows.length === 0) { showToast("Empty file", "error"); return; }
-    showToast("Parsing with AI…");
-    const plan = await parseImportedCSVWithAI(rows);
-    openImportPreview(plan);
   } catch (e) {
+    hideImportProgress();
     showToast(e.message || "Import failed", "error");
   }
+}
+
+async function importSelectedSheets(sheets) {
+  try {
+    showImportProgress(`Parsing ${sheets.length} sheet${sheets.length > 1 ? "s" : ""} with AI in parallel…`);
+    const parts = await Promise.all(sheets.map(async s => {
+      try {
+        return await parseImportedCSVWithAI(s.rows, s.name);
+      } catch (e) {
+        console.error(`Sheet "${s.name}" failed:`, e);
+        return { projects: [], tasks: [], questions: [`Sheet "${s.name}" failed to parse: ${e.message}`], headerDetected: "" };
+      }
+    }));
+    let plan = mergeImportPlans(parts);
+    showImportProgress("Checking for duplicates…");
+    plan = await dedupeImportPlan(plan);
+    hideImportProgress();
+    openImportPreview(plan);
+  } catch (e) {
+    hideImportProgress();
+    showToast(e.message || "Import failed", "error");
+  }
+}
+
+async function aiSummarizeSheets(sheets) {
+  const key = getApiKey();
+  if (!key) return sheets.map(() => ({ summary: "", suggestImport: true, monthHint: "" }));
+
+  const payload = sheets.map((s, i) => {
+    const head = s.rows.slice(0, 6).map(r => r.map(v => String(v).slice(0, 60)).join(" | ")).join("\n");
+    return `=== Sheet #${i}: "${s.name}" (${s.rows.length} rows) ===\n${head}`;
+  }).join("\n\n");
+
+  try {
+    const body = {
+      model: CLAUDE_MODEL,
+      max_tokens: 2000,
+      system: [{ type: "text", text: "You preview spreadsheet sheets to help a user decide which to import into a project manager. For each sheet, return a one-line summary of what it appears to contain (project name, month, kind of data), whether you'd recommend importing it (true if it looks like task data, false if it looks like notes/totals/empty/unrelated), and the implied month if the sheet is clearly tied to a single month (YYYY-MM) — empty string if mixed or unknown." }],
+      tools: [{
+        name: "summarize_sheets",
+        description: "One entry per sheet, in the same order.",
+        input_schema: {
+          type: "object",
+          properties: {
+            sheets: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  idx: { type: "integer" },
+                  summary: { type: "string" },
+                  suggestImport: { type: "boolean" },
+                  monthHint: { type: "string", description: "YYYY-MM or empty" }
+                },
+                required: ["idx", "summary", "suggestImport"]
+              }
+            }
+          },
+          required: ["sheets"]
+        }
+      }],
+      tool_choice: { type: "tool", name: "summarize_sheets" },
+      messages: [{ role: "user", content: payload }]
+    };
+    const res = await fetch(CLAUDE_API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error("scan failed");
+    const data = await res.json();
+    const tb = (data.content || []).find(b => b.type === "tool_use");
+    const arr = tb?.input?.sheets || [];
+    return sheets.map((_, i) => {
+      const m = arr.find(x => x.idx === i) || {};
+      return { summary: m.summary || "", suggestImport: m.suggestImport !== false, monthHint: m.monthHint || "" };
+    });
+  } catch {
+    return sheets.map(() => ({ summary: "", suggestImport: true, monthHint: "" }));
+  }
+}
+
+function openSheetSelectionModal(sheets, summaries, cb) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.style.maxWidth = "520px";
+
+  const items = sheets.map((s, i) => {
+    const sum = summaries[i] || {};
+    const hint = sum.suggestImport === false
+      ? `<span style="color:#ff9500; font-size:11px;">· AI suggests skipping</span>`
+      : "";
+    return `
+      <label style="display:flex; align-items:flex-start; gap:10px; padding:10px; border-radius:8px; cursor:pointer; background:#f5f5f7; margin-bottom:6px;">
+        <input type="checkbox" data-idx="${i}" checked style="margin-top:2px;" />
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:13px;">${escapeHtml(s.name)} <span style="color:#8e8e93; font-weight:400; font-size:11px;">· ${s.rows.length} row(s)${sum.monthHint ? ` · likely ${escapeHtml(monthLabel(sum.monthHint))}` : ""}</span> ${hint}</div>
+          ${sum.summary ? `<div style="font-size:12px; color:#6e6e73; margin-top:2px;">${escapeHtml(sum.summary)}</div>` : ""}
+        </div>
+      </label>
+    `;
+  }).join("");
+
+  modal.innerHTML = `
+    <h2>Select sheets to import</h2>
+    <div style="font-size:12px; color:#8e8e73; margin-bottom:10px;">Found ${sheets.length} sheets in this file. AI has previewed each — uncheck any you don't want.</div>
+    <div style="max-height:380px; overflow-y:auto; margin-bottom:10px;">
+      ${items}
+    </div>
+    <div style="display:flex; gap:6px; margin-bottom:10px;">
+      <button class="btn btn-sec" id="ssAll" style="font-size:12px;">Select all</button>
+      <button class="btn btn-sec" id="ssNone" style="font-size:12px;">Select none</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sec" id="ssCancel">Cancel</button>
+      <button class="btn" id="ssGo">Import selected</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const close = () => document.body.removeChild(backdrop);
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  modal.querySelector("#ssCancel").onclick = close;
+  modal.querySelector("#ssAll").onclick = () => modal.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = true);
+  modal.querySelector("#ssNone").onclick = () => modal.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = false);
+  modal.querySelector("#ssGo").onclick = () => {
+    const selected = [];
+    modal.querySelectorAll("input[type=checkbox]:checked").forEach(c => {
+      const idx = parseInt(c.getAttribute("data-idx"));
+      selected.push(sheets[idx]);
+    });
+    if (selected.length === 0) { showToast("Select at least one sheet", "error"); return; }
+    close();
+    cb(selected);
+  };
 }
 
 async function handleCSVImport(file) {
@@ -2965,10 +3530,14 @@ async function handleCSVImport(file) {
     const text = await file.text();
     const rows = parseCSV(text);
     if (rows.length === 0) { showToast("Empty file", "error"); return; }
-    showToast("Parsing with AI…");
-    const plan = await parseImportedCSVWithAI(rows);
+    showImportProgress("Parsing CSV with AI…");
+    let plan = await parseImportedCSVWithAI(rows);
+    showImportProgress("Checking for duplicates…");
+    plan = await dedupeImportPlan(plan);
+    hideImportProgress();
     openImportPreview(plan);
   } catch (e) {
+    hideImportProgress();
     showToast(e.message || "Import failed", "error");
   }
 }
@@ -2994,11 +3563,50 @@ function openImportPreview(plan) {
   ).join("<br>");
   const more = Math.max(0, (plan.tasks || []).length - 25);
 
+  const droppedExact = plan._droppedExact || 0;
+  const droppedAI = plan._droppedAI || 0;
+  const droppedTotal = droppedExact + droppedAI;
+  const dupLine = droppedTotal > 0
+    ? `<div style="color:#34c759; font-size:12px; margin-top:4px;">Skipped ${droppedTotal} duplicate(s) already in your project manager${droppedAI > 0 ? ` (${droppedExact} exact + ${droppedAI} AI-matched)` : ""}.</div>`
+    : "";
+
+  const monthCounts = {};
+  (plan.tasks || []).forEach(t => {
+    if (!t.date) return;
+    const m = t.date.slice(0, 7);
+    monthCounts[m] = (monthCounts[m] || 0) + 1;
+  });
+  const monthEntries = Object.entries(monthCounts).sort();
+  const newMonths = monthEntries.filter(([m]) => !state.months.includes(m)).map(([m]) => m);
+  const breakdownLine = monthEntries.length > 0
+    ? `<div style="font-size:12px; margin-top:4px;"><b>By month:</b> ${monthEntries.map(([m, n]) => `${escapeHtml(monthLabel(m))} (${n})`).join(", ")}${newMonths.length > 0 ? ` <span style="color:#0071e3;">— will create ${newMonths.length} new tab(s)</span>` : ""}</div>`
+    : "";
+
+  const sheetCounts = {};
+  const allSheets = Array.isArray(plan._sheetNames) ? plan._sheetNames : [];
+  allSheets.forEach(s => { sheetCounts[s] = 0; });
+  (plan.tasks || []).forEach(t => {
+    const s = t._sourceSheet;
+    if (s) sheetCounts[s] = (sheetCounts[s] || 0) + 1;
+  });
+  const sheetEntries = Object.entries(sheetCounts);
+  const zeroSheets = sheetEntries.filter(([, n]) => n === 0).map(([s]) => s);
+  const sheetLine = sheetEntries.length > 0
+    ? `<div style="font-size:12px; margin-top:4px;"><b>By sheet:</b> ${sheetEntries.map(([s, n]) => `${escapeHtml(s)} (${n})`).join(", ")}</div>`
+    : "";
+  const zeroWarn = zeroSheets.length > 0
+    ? `<div style="color:#ff9500; font-size:12px; margin-top:4px;">⚠ No tasks extracted from: ${zeroSheets.map(escapeHtml).join(", ")}. Check if these sheets actually contain task data.</div>`
+    : "";
+
   modal.innerHTML = `
     <h2>📥 Review import</h2>
     <div style="font-size:13px; color:#6e6e73; margin-bottom:14px;">
       <b>Detected columns:</b> ${escapeHtml(plan.headerDetected || "unknown")}<br>
       ${(plan.projects || []).length} project(s), ${(plan.tasks || []).length} task(s).
+      ${sheetLine}
+      ${breakdownLine}
+      ${dupLine}
+      ${zeroWarn}
     </div>
     ${questions.length ? `<div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#ff9500;">⚠ AI needs clarification before importing</div>${qHtml}` : ""}
     <div style="max-height:220px; overflow-y:auto; background:#f5f5f7; border-radius:8px; padding:10px; font-size:11px; font-family:ui-monospace,Menlo,monospace; line-height:1.5;">
@@ -3086,6 +3694,7 @@ function applyImportPlan(plan) {
   });
 
   let added = 0;
+  const touchedMonths = new Set();
   (plan.tasks || []).forEach(t => {
     if (!t.title || !t.date || !t.projectName) return;
     const key = t.projectName.toLowerCase();
@@ -3109,6 +3718,7 @@ function applyImportPlan(plan) {
     if (!state.months.includes(m)) state.months.push(m);
     const proj = state.projects.find(x => x.id === pid);
     if (proj && !proj.months.includes(m)) proj.months.push(m);
+    touchedMonths.add(m);
     const nt = {
       id: uid(),
       projectId: pid,
@@ -3121,9 +3731,17 @@ function applyImportPlan(plan) {
     added++;
   });
 
+  if (touchedMonths.size > 0 && !touchedMonths.has(state.activeMonth)) {
+    const earliest = [...touchedMonths].sort()[0];
+    state.activeMonth = earliest;
+    state.anchorDate = `${earliest}-01`;
+  }
+
   saveState();
   render();
-  showToast(`Imported ${added} task(s)`, "success");
+  const monthList = [...touchedMonths].sort().map(m => monthLabel(m)).join(", ");
+  const monthsMsg = touchedMonths.size > 1 ? ` across ${touchedMonths.size} months (${monthList})` : (touchedMonths.size === 1 ? ` (${monthList})` : "");
+  showToast(`Imported ${added} task(s)${monthsMsg}`, "success");
 }
 
 async function handleQuickAdd(text) {
@@ -3429,6 +4047,106 @@ function loadWeather() {
     el.textContent = "Weather needs location permission";
   }, { maximumAge: 10 * 60 * 1000, timeout: 10000 });
 }
+
+/* =========================================================
+   Rubber-band selection (mouse drag to select multiple tasks)
+   ========================================================= */
+(function initRubberBand() {
+  const RB_THRESHOLD = 5;
+  const SKIP_SELECTOR = ".task, button, input, textarea, select, a, label, " +
+    ".modal, .modal-backdrop, .ctx-menu, .selection-bar, .month-picker-menu, " +
+    ".auth-backdrop, .project-label, .header-sync, .drag-handle, " +
+    ".row-resize-handle, .task-actions, .month-tab, .nav-arrow, .group-header";
+  let start = null;
+  let box = null;
+  let baseSelection = null;
+
+  const onDown = (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(SKIP_SELECTOR)) return;
+    if (!e.target.closest("main, #unfinishedPanel")) return;
+    start = {
+      x: e.pageX, y: e.pageY,
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      open: false
+    };
+  };
+
+  const onMove = (e) => {
+    if (!start) return;
+    const dx = e.pageX - start.x;
+    const dy = e.pageY - start.y;
+    if (!start.open) {
+      if (Math.abs(dx) < RB_THRESHOLD && Math.abs(dy) < RB_THRESHOLD) return;
+      start.open = true;
+      box = document.createElement("div");
+      box.className = "rubber-band";
+      document.body.appendChild(box);
+      document.body.classList.add("rb-active");
+      baseSelection = start.additive ? new Set(selectedTaskIds) : new Set();
+      if (!start.additive) {
+        selectedTaskIds.clear();
+        document.querySelectorAll(".task.selected").forEach(x => x.classList.remove("selected"));
+      }
+    }
+    const x1 = Math.min(start.x, e.pageX);
+    const y1 = Math.min(start.y, e.pageY);
+    const w = Math.abs(dx);
+    const h = Math.abs(dy);
+    box.style.left = x1 + "px";
+    box.style.top = y1 + "px";
+    box.style.width = w + "px";
+    box.style.height = h + "px";
+
+    const rect = { left: x1, top: y1, right: x1 + w, bottom: y1 + h };
+    const next = new Set(baseSelection);
+    document.querySelectorAll(".task").forEach(el => {
+      const r = el.getBoundingClientRect();
+      const pr = {
+        left: r.left + window.scrollX,
+        top: r.top + window.scrollY,
+        right: r.right + window.scrollX,
+        bottom: r.bottom + window.scrollY
+      };
+      const hit = !(pr.right < rect.left || pr.left > rect.right ||
+                    pr.bottom < rect.top || pr.top > rect.bottom);
+      const id = el.dataset.taskId;
+      if (!id) return;
+      if (hit) next.add(id);
+    });
+    selectedTaskIds.clear();
+    next.forEach(id => selectedTaskIds.add(id));
+    document.querySelectorAll(".task").forEach(el => {
+      const id = el.dataset.taskId;
+      el.classList.toggle("selected", id ? selectedTaskIds.has(id) : false);
+    });
+    e.preventDefault();
+  };
+
+  const onUp = (e) => {
+    if (!start) return;
+    const wasOpen = start.open;
+    start = null;
+    baseSelection = null;
+    if (box) { box.remove(); box = null; }
+    document.body.classList.remove("rb-active");
+    if (wasOpen) {
+      updateSelectionBar();
+      const swallow = (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        document.removeEventListener("click", swallow, true);
+      };
+      document.addEventListener("click", swallow, true);
+      e.preventDefault();
+    }
+  };
+
+  document.addEventListener("pointerdown", onDown);
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
+})();
 
 render();
 updateUndoRedoButtons();
