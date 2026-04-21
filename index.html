@@ -959,7 +959,7 @@ function laterDoneInSeries(t) {
 }
 
 function carriedForward(t) {
-  if (!t || t.status === "done") return null;
+  if (!t) return null;
   const peers = seriesPeers(t);
   return peers.find(p => p.date > t.date) || null;
 }
@@ -1056,7 +1056,7 @@ function moveTasks(ids, newProjectId, newDate, duplicate) {
       changed = true;
     } else {
       if (sameCell && !t.groupId) return;
-      const carryForward = !sameCell && t.status !== "done" && t.projectId === pid && date > t.date;
+      const carryForward = !sameCell && t.projectId === pid && date > t.date;
       if (carryForward) {
         const copy = { ...t, id: uid(), projectId: pid, date };
         delete copy.groupId;
