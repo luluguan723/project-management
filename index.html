@@ -178,6 +178,85 @@
     left: 0;
     z-index: 3;
   }
+  .week-header-cell.custom-col-header {
+    text-align: left;
+    padding-left: 12px;
+    background: #fafafa;
+    position: sticky;
+    z-index: 3;
+    cursor: default;
+    display: flex;
+    align-items: center;
+  }
+  .custom-col-name {
+    outline: none;
+    cursor: text;
+    flex: 1;
+    min-width: 0;
+    padding: 2px 2px;
+    border-radius: 4px;
+  }
+  .custom-col-name:focus { background: #fff; box-shadow: 0 0 0 2px #007aff inset; }
+  .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 4;
+  }
+  .col-resize-handle:hover { background: rgba(0,122,255,0.25); }
+  .custom-col-cell {
+    border-right: 1px solid #e5e5ea;
+    border-bottom: 1px solid #e5e5ea;
+    position: sticky;
+    z-index: 2;
+    background: #fff;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #1d1d1f;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+    cursor: text;
+  }
+  .custom-col-cell:empty::before { content: attr(data-ph); color: #c7c7cc; }
+  .custom-col-cell:focus { outline: 2px solid #007aff; outline-offset: -2px; }
+  .custom-col-cell ul, .custom-col-cell ol { margin: 0 0 0 1.1em; padding: 0; }
+  .custom-col-cell li { margin: 0; }
+  .custom-fmt-toolbar {
+    position: fixed;
+    display: none;
+    gap: 2px;
+    background: #1d1d1f;
+    border-radius: 7px;
+    padding: 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 500;
+  }
+  .custom-fmt-toolbar button {
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: transparent;
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .custom-fmt-toolbar button:hover { background: rgba(255,255,255,0.18); }
+  .week-body {
+    display: grid;
+    width: max-content;
+    min-width: 100%;
+    background: #fff;
+  }
   .project-row {
     display: grid;
     border-bottom: 1px solid #e5e5ea;
@@ -187,9 +266,9 @@
     position: relative;
   }
   .project-row:last-child { border-bottom: none; }
-  .project-row.dragging-row { opacity: 0.5; }
-  .project-row.row-drop-above { box-shadow: 0 -2px 0 #007aff inset, 0 -3px 0 #007aff; }
-  .project-row.row-drop-below { box-shadow: 0 2px 0 #007aff inset, 0 3px 0 #007aff; }
+  .dragging-rowcell { opacity: 0.5; }
+  .project-label.row-drop-above { box-shadow: 0 -3px 0 #007aff inset; }
+  .project-label.row-drop-below { box-shadow: 0 3px 0 #007aff inset; }
   .drag-handle {
     cursor: grab;
     font-size: 14px;
@@ -222,6 +301,7 @@
   .project-label {
     padding: 10px 12px;
     border-right: 1px solid #e5e5ea;
+    border-bottom: 1px solid #e5e5ea;
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -264,14 +344,14 @@
   .day-cell {
     padding: 4px 2px 10px 2px;
     border-right: 1px solid #e5e5ea;
+    border-bottom: 1px solid #e5e5ea;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    min-height: 90px;
+    min-height: 36px;
   }
   .day-cell:last-child { border-right: none; }
   .day-cell.today { background: #f0f7ff; }
-  .project-row.empty-row, .project-row.empty-row .day-cell { min-height: 36px; }
   .task {
     padding: 1px 4px;
     margin-bottom: 1px;
@@ -302,8 +382,6 @@
   .task.done .task-title { text-decoration: line-through; }
   .task.done-later { opacity: 0.45; }
   .task.done-later .task-title { text-decoration: line-through; text-decoration-color: #8e8e93; color: #8e8e93; }
-  .task.carried { opacity: 0.45; }
-  .task.carried .task-title { color: #8e8e93; }
   .task.archived { opacity: 0.4; }
   .task.archived .task-title { color: #8e8e93; }
   .task.in-series .task-title::after { content: " ↺"; color: #8e8e93; font-size: 10px; }
@@ -807,6 +885,13 @@ function loadState() {
       if (!parsed.userName) parsed.userName = "Kailu";
       if (!parsed.projectHeights) parsed.projectHeights = {};
       if (!parsed.groups) parsed.groups = [];
+      if (parsed.customColName === undefined) parsed.customColName = "Notes";
+      if (parsed.customColWidth === undefined) parsed.customColWidth = 160;
+      if (parsed.customColContent === undefined) {
+        // Migrate any per-project notes into the single shared column cell.
+        const old = (parsed.projects || []).map(p => p && p.custom).filter(c => c && String(c).trim());
+        parsed.customColContent = old.join("<br>");
+      }
       return parsed;
     }
   } catch (e) {}
@@ -822,6 +907,9 @@ function loadState() {
     userName: "Kailu",
     projectHeights: {},
     groups: [],
+    customColName: "Notes",
+    customColWidth: 160,
+    customColContent: "",
   };
 }
 
@@ -967,22 +1055,30 @@ function carriedForward(t) {
 function addProject(name, color) {
   const existing = state.projects.find(p => p.name.toLowerCase() === name.toLowerCase());
   if (existing) {
-    if (!existing.months.includes(state.activeMonth)) existing.months.push(state.activeMonth);
+    // Projects are global: make sure it's active in every tab.
+    state.months.forEach(m => { if (!existing.months.includes(m)) existing.months.push(m); });
     saveState();
     return existing.id;
   }
   const id = uid();
-  state.projects.push({ id, name, color: color || COLORS[state.projects.length % COLORS.length], months: [state.activeMonth] });
+  // New projects appear across all month tabs (and carry into future tabs via carryProjectsToMonth).
+  state.projects.push({ id, name, color: color || COLORS[state.projects.length % COLORS.length], months: [...state.months] });
   saveState();
   return id;
 }
 function deleteProject(id) {
-  if (!confirm("Remove this project from this month? (Tasks will also be deleted for this month.)")) return;
   const proj = state.projects.find(p => p.id === id);
   if (!proj) return;
-  proj.months = proj.months.filter(m => m !== state.activeMonth);
-  state.tasks = state.tasks.filter(t => !(t.projectId === id && sameMonth(t.date, state.activeMonth)));
+  if (!confirm("Delete this project from " + monthLabel(state.activeMonth) + " onward?\n\nPast months keep the project and its tasks. Current and future tasks for it will be removed, and you won't be able to add new tasks to it going forward.")) return;
+  const cutoff = state.activeMonth; // "YYYY-MM" — string compare is chronological
+  // Keep the project only in past months; remove it from the current month and all future ones.
+  proj.months = proj.months.filter(m => m < cutoff);
+  // Delete its tasks from the current month onward, but keep historical tasks intact.
+  state.tasks = state.tasks.filter(t => !(t.projectId === id && t.date.slice(0, 7) >= cutoff));
+  // If it never existed in any past month, it's gone entirely.
   if (proj.months.length === 0) state.projects = state.projects.filter(p => p.id !== id);
+  selectedTaskIds.clear();
+  pruneEmptyGroups();
   saveState();
   render();
 }
@@ -1056,19 +1152,10 @@ function moveTasks(ids, newProjectId, newDate, duplicate) {
       changed = true;
     } else {
       if (sameCell && !t.groupId) return;
-      const carryForward = !sameCell && t.projectId === pid && date > t.date;
-      if (carryForward) {
-        const copy = { ...t, id: uid(), projectId: pid, date };
-        delete copy.groupId;
-        delete copy.archived;
-        delete copy.archivedAt;
-        state.tasks.push(copy);
-        attachToSeries(copy);
-      } else {
-        t.projectId = pid;
-        t.date = date;
-        delete t.groupId;
-      }
+      // Moving relocates the task — no grayed-out copy left behind on the old date.
+      t.projectId = pid;
+      t.date = date;
+      delete t.groupId;
       changed = true;
     }
     const m = date.slice(0, 7);
@@ -1128,28 +1215,35 @@ function reorderProject(srcId, destId, mode) {
   render();
 }
 
-function startRowResize(e, projId, row) {
+// Recompute the week body's row track heights from saved/auto sizes.
+function applyWeekRowSizes(body) {
+  const projects = currentMonthProjects();
+  const [y, m] = state.activeMonth.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => isoDate(new Date(y, m - 1, i + 1)));
+  const sizeFor = (p) => {
+    const h = state.projectHeights && state.projectHeights[p.id];
+    if (h) return h + "px";
+    const hasTasks = state.tasks.some(t => t.projectId === p.id && days.includes(t.date));
+    return hasTasks ? "minmax(90px, max-content)" : "minmax(36px, max-content)";
+  };
+  body.style.gridTemplateRows = projects.map(sizeFor).join(" ") + " minmax(44px, max-content)";
+}
+
+function startRowResize(e, projId, body, labelEl) {
   e.preventDefault();
   e.stopPropagation();
   const startY = e.clientY;
-  const startH = row.getBoundingClientRect().height;
-  const cells = row.querySelectorAll(".day-cell, .project-label");
+  const startH = labelEl.getBoundingClientRect().height;
   const onMove = (ev) => {
-    const newH = Math.max(28, startH + (ev.clientY - startY));
-    row.style.height = newH + "px";
-    row.style.minHeight = newH + "px";
-    cells.forEach(el => {
-      el.style.height = newH + "px";
-      el.style.minHeight = newH + "px";
-      if (el.classList.contains("day-cell")) el.style.overflowY = "auto";
-    });
+    const newH = Math.max(36, Math.round(startH + (ev.clientY - startY)));
+    if (!state.projectHeights) state.projectHeights = {};
+    state.projectHeights[projId] = newH;
+    applyWeekRowSizes(body);
   };
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
-    const finalH = Math.round(row.getBoundingClientRect().height);
-    if (!state.projectHeights) state.projectHeights = {};
-    state.projectHeights[projId] = finalH;
     saveState();
   };
   window.addEventListener("pointermove", onMove);
@@ -1160,12 +1254,9 @@ function moveTaskToNextDay(taskId) {
   const t = state.tasks.find(x => x.id === taskId);
   if (!t) return;
   const newDate = addDays(t.date, 1);
-  const copy = { ...t, id: uid(), date: newDate };
-  delete copy.groupId;
-  delete copy.archived;
-  delete copy.archivedAt;
-  state.tasks.push(copy);
-  attachToSeries(copy);
+  // Relocate to the next day rather than leaving a grayed-out copy behind.
+  t.date = newDate;
+  delete t.groupId;
   const newMonth = newDate.slice(0, 7);
   if (!state.months.includes(newMonth)) state.months.push(newMonth);
   const proj = state.projects.find(p => p.id === t.projectId);
@@ -1453,13 +1544,16 @@ function renderPeriodLabel() {
 const weekScrollByMonth = {};
 const DAY_COL_W = 280;
 const PROJ_COL_W = 200;
+const CUSTOM_COL_W = 160;
 
 function renderWeek() {
+  hideCustomToolbar();
   const projects = currentMonthProjects();
   const [y, m] = state.activeMonth.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => isoDate(new Date(y, m - 1, i + 1)));
-  const cols = `${PROJ_COL_W}px repeat(${days.length}, ${DAY_COL_W}px)`;
+  const customW = state.customColWidth || CUSTOM_COL_W;
+  const cols = `${PROJ_COL_W}px ${customW}px repeat(${days.length}, ${DAY_COL_W}px)`;
 
   const grid = document.createElement("div");
   grid.className = "week-grid";
@@ -1471,6 +1565,33 @@ function renderWeek() {
   hProj.className = "week-header-cell project-col-header";
   hProj.textContent = "Project";
   header.appendChild(hProj);
+  const hCustom = document.createElement("div");
+  hCustom.className = "week-header-cell custom-col-header";
+  hCustom.style.left = PROJ_COL_W + "px";
+  const colName = document.createElement("span");
+  colName.className = "custom-col-name";
+  colName.contentEditable = "true";
+  colName.spellcheck = false;
+  colName.textContent = state.customColName || "Notes";
+  colName.title = "Click to rename this column";
+  colName.addEventListener("blur", () => {
+    const v = colName.textContent.trim();
+    state.customColName = v || "Notes";
+    if (!v) colName.textContent = "Notes";
+    saveState();
+  });
+  colName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); colName.blur(); }
+    else if (e.key === "Escape") { e.preventDefault(); colName.textContent = state.customColName || "Notes"; colName.blur(); }
+  });
+  hCustom.appendChild(colName);
+  const colResize = document.createElement("div");
+  colResize.className = "col-resize-handle";
+  colResize.title = "Drag to resize column";
+  colResize.addEventListener("mousedown", (e) => e.preventDefault());
+  colResize.addEventListener("pointerdown", (e) => startColResize(e, days.length));
+  hCustom.appendChild(colResize);
+  header.appendChild(hCustom);
   days.forEach(dStr => {
     const cell = document.createElement("div");
     cell.className = "week-header-cell" + (isToday(dStr) ? " today" : "");
@@ -1489,22 +1610,24 @@ function renderWeek() {
     return;
   }
 
-  projects.forEach(proj => {
-    const row = document.createElement("div");
-    row.className = "project-row";
-    const hasTasks = state.tasks.some(t => t.projectId === proj.id && days.includes(t.date));
-    if (!hasTasks) row.classList.add("empty-row");
-    row.style.gridTemplateColumns = cols;
+  // The body is ONE grid so the Notes/Goals column can be a single cell that
+  // spans every project row, while labels and day cells stay on their own rows.
+  const body = document.createElement("div");
+  body.className = "week-body";
+  body.style.gridTemplateColumns = cols;
+
+  projects.forEach((proj, rowIdx) => {
+    const gridRow = rowIdx + 1;
     const savedH = state.projectHeights && state.projectHeights[proj.id];
-    if (savedH) {
-      row.style.height = savedH + "px";
-      row.style.minHeight = savedH + "px";
-    }
+    const projCells = [];
 
     const label = document.createElement("div");
     label.className = "project-label";
+    label.style.gridColumn = "1";
+    label.style.gridRow = String(gridRow);
     label.style.background = proj.color;
     label.title = "Click to change color";
+    projCells.push(label);
 
     const dragHandle = document.createElement("span");
     dragHandle.className = "drag-handle";
@@ -1515,9 +1638,9 @@ function renderWeek() {
       e.dataTransfer.setData("application/x-pm-project", proj.id);
       e.dataTransfer.setData("text/pm-project", proj.id);
       e.dataTransfer.effectAllowed = "move";
-      row.classList.add("dragging-row");
+      projCells.forEach(c => c.classList.add("dragging-rowcell"));
     });
-    dragHandle.addEventListener("dragend", () => row.classList.remove("dragging-row"));
+    dragHandle.addEventListener("dragend", () => projCells.forEach(c => c.classList.remove("dragging-rowcell")));
     label.appendChild(dragHandle);
 
     const pill = document.createElement("span");
@@ -1528,7 +1651,7 @@ function renderWeek() {
     const del = document.createElement("button");
     del.className = "project-del";
     del.innerHTML = "×";
-    del.title = "Remove project from month";
+    del.title = "Delete project (this month onward)";
     del.style.color = "#fff";
     del.onclick = (e) => { e.stopPropagation(); deleteProject(proj.id); };
     label.appendChild(del);
@@ -1546,13 +1669,11 @@ function renderWeek() {
       e.dataTransfer.dropEffect = "move";
       const rect = label.getBoundingClientRect();
       const isAbove = (e.clientY - rect.top) < rect.height / 2;
-      row.classList.toggle("row-drop-above", isAbove);
-      row.classList.toggle("row-drop-below", !isAbove);
+      label.classList.toggle("row-drop-above", isAbove);
+      label.classList.toggle("row-drop-below", !isAbove);
     });
     label.addEventListener("dragleave", (e) => {
-      if (!label.contains(e.relatedTarget)) {
-        row.classList.remove("row-drop-above", "row-drop-below");
-      }
+      if (!label.contains(e.relatedTarget)) label.classList.remove("row-drop-above", "row-drop-below");
     });
     label.addEventListener("drop", (e) => {
       const srcId = e.dataTransfer.getData("application/x-pm-project") ||
@@ -1562,52 +1683,96 @@ function renderWeek() {
       e.stopPropagation();
       const rect = label.getBoundingClientRect();
       const isAbove = (e.clientY - rect.top) < rect.height / 2;
-      row.classList.remove("row-drop-above", "row-drop-below");
+      label.classList.remove("row-drop-above", "row-drop-below");
       reorderProject(srcId, proj.id, isAbove ? "before" : "after");
-    });
-
-    row.appendChild(label);
-
-    days.forEach(dStr => {
-      const cell = document.createElement("div");
-      cell.className = "day-cell" + (isToday(dStr) ? " today" : "");
-      cell.style.cursor = "text";
-      if (savedH) {
-        cell.style.height = savedH + "px";
-        cell.style.minHeight = savedH + "px";
-        cell.style.overflowY = "auto";
-      }
-      renderTasksInto(cell, tasksFor(proj.id, dStr), proj);
-      cell.onclick = (e) => handleCellClick(e, cell, proj.id, dStr);
-      attachDropZone(cell, () => ({ projectId: proj.id, date: dStr }));
-      row.appendChild(cell);
     });
 
     const resizeHandle = document.createElement("div");
     resizeHandle.className = "row-resize-handle";
     resizeHandle.title = "Drag to resize row";
-    resizeHandle.addEventListener("pointerdown", (e) => startRowResize(e, proj.id, row));
-    row.appendChild(resizeHandle);
+    resizeHandle.addEventListener("pointerdown", (e) => startRowResize(e, proj.id, body, label));
+    label.appendChild(resizeHandle);
 
-    grid.appendChild(row);
+    body.appendChild(label);
+
+    days.forEach((dStr, dayIdx) => {
+      const cell = document.createElement("div");
+      cell.className = "day-cell" + (isToday(dStr) ? " today" : "");
+      cell.style.gridColumn = String(3 + dayIdx);
+      cell.style.gridRow = String(gridRow);
+      cell.style.cursor = "text";
+      if (savedH) cell.style.overflowY = "auto"; // fixed-height row → scroll tasks
+      renderTasksInto(cell, tasksFor(proj.id, dStr), proj);
+      cell.onclick = (e) => handleCellClick(e, cell, proj.id, dStr);
+      attachDropZone(cell, () => ({ projectId: proj.id, date: dStr }));
+      projCells.push(cell);
+      body.appendChild(cell);
+    });
   });
 
-  const addRow = document.createElement("div");
-  addRow.className = "project-row";
-  addRow.style.gridTemplateColumns = cols;
+  // One big Notes/Goals cell spanning every project row.
+  const notesCell = document.createElement("div");
+  notesCell.className = "custom-col-cell";
+  notesCell.style.left = PROJ_COL_W + "px";
+  notesCell.style.gridColumn = "2";
+  notesCell.style.gridRow = `1 / span ${projects.length}`;
+  notesCell.dataset.ph = "—";
+  notesCell.contentEditable = "true";
+  notesCell.spellcheck = false;
+  notesCell.innerHTML = state.customColContent || "";
+  notesCell.addEventListener("focus", () => showCustomToolbar(notesCell));
+  notesCell.addEventListener("blur", () => {
+    hideCustomToolbar(notesCell);
+    let html = notesCell.innerHTML;
+    // Collapse leftover <br>/<div> from an emptied cell so the placeholder shows.
+    if (!notesCell.textContent.trim() && !/<(img|hr)/i.test(html)) { html = ""; notesCell.innerHTML = ""; }
+    if ((state.customColContent || "") === html) return;
+    state.customColContent = html;
+    saveState();
+  });
+  // Paste as plain text to keep the cell tidy (formatting is applied via shortcuts/toolbar).
+  notesCell.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, text);
+  });
+  notesCell.addEventListener("keydown", (e) => {
+    const meta = e.metaKey || e.ctrlKey;
+    if (!meta) return;
+    const k = e.key.toLowerCase();
+    if (k === "b") { e.preventDefault(); document.execCommand("bold"); }
+    else if (k === "i") { e.preventDefault(); document.execCommand("italic"); }
+    else if (k === "u") { e.preventDefault(); document.execCommand("underline"); }
+    else if (e.shiftKey && (k === "8" || k === "*")) { e.preventDefault(); document.execCommand("insertUnorderedList"); }
+  });
+  body.appendChild(notesCell);
+
+  // Add-project row
+  const addRowNum = projects.length + 1;
   const addLabel = document.createElement("div");
   addLabel.className = "project-label add-project-label";
+  addLabel.style.gridColumn = "1";
+  addLabel.style.gridRow = String(addRowNum);
   addLabel.textContent = "+ Add project";
   addLabel.onclick = openProjectModal;
-  addRow.appendChild(addLabel);
-  days.forEach(() => {
+  body.appendChild(addLabel);
+  const addCustom = document.createElement("div");
+  addCustom.className = "custom-col-cell";
+  addCustom.style.left = PROJ_COL_W + "px";
+  addCustom.style.gridColumn = "2";
+  addCustom.style.gridRow = String(addRowNum);
+  addCustom.style.background = "#fafafa";
+  body.appendChild(addCustom);
+  days.forEach((_, dayIdx) => {
     const cell = document.createElement("div");
     cell.className = "day-cell";
-    cell.style.minHeight = "44px";
-    addRow.appendChild(cell);
+    cell.style.gridColumn = String(3 + dayIdx);
+    cell.style.gridRow = String(addRowNum);
+    body.appendChild(cell);
   });
-  addRow.style.minHeight = "44px";
-  grid.appendChild(addRow);
+
+  applyWeekRowSizes(body);
+  grid.appendChild(body);
 
   main.appendChild(grid);
 
@@ -1623,6 +1788,68 @@ function renderWeek() {
   grid.addEventListener("scroll", () => {
     weekScrollByMonth[state.activeMonth] = grid.scrollLeft;
   });
+}
+
+function startColResize(e, dayCount) {
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const startW = state.customColWidth || CUSTOM_COL_W;
+  const grids = document.querySelectorAll(".week-header, .week-body");
+  const apply = (w) => {
+    const cols = `${PROJ_COL_W}px ${w}px repeat(${dayCount}, ${DAY_COL_W}px)`;
+    grids.forEach(g => { g.style.gridTemplateColumns = cols; });
+  };
+  const onMove = (ev) => {
+    const w = Math.max(90, Math.min(640, startW + (ev.clientX - startX)));
+    state.customColWidth = w;
+    apply(w);
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    saveState();
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+
+let _customToolbar = null;
+let _activeCustomCell = null;
+function ensureCustomToolbar() {
+  if (_customToolbar) return _customToolbar;
+  const tb = document.createElement("div");
+  tb.className = "custom-fmt-toolbar";
+  tb.innerHTML =
+    `<button data-cmd="bold" title="Bold (⌘B)"><b>B</b></button>` +
+    `<button data-cmd="italic" title="Italic (⌘I)"><i>I</i></button>` +
+    `<button data-cmd="underline" title="Underline (⌘U)" style="text-decoration:underline;">U</button>` +
+    `<button data-cmd="insertUnorderedList" title="Bullet list (⌘⇧8)">•</button>`;
+  tb.querySelectorAll("button").forEach(b => {
+    // mousedown (not click) + preventDefault keeps the cell's selection intact.
+    b.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      document.execCommand(b.dataset.cmd, false, null);
+      if (_activeCustomCell) _activeCustomCell.focus();
+    });
+  });
+  document.body.appendChild(tb);
+  _customToolbar = tb;
+  return tb;
+}
+function showCustomToolbar(cell) {
+  const tb = ensureCustomToolbar();
+  _activeCustomCell = cell;
+  tb.style.display = "flex";
+  const r = cell.getBoundingClientRect();
+  const tbW = tb.offsetWidth || 120;
+  tb.style.left = Math.max(6, Math.min(r.left, window.innerWidth - tbW - 6)) + "px";
+  tb.style.top = Math.max(6, r.top - (tb.offsetHeight || 34) - 6) + "px";
+}
+function hideCustomToolbar(cell) {
+  if (cell && cell !== _activeCustomCell) return;
+  if (_customToolbar) _customToolbar.style.display = "none";
+  _activeCustomCell = null;
 }
 
 function renderDay() {
@@ -2293,18 +2520,15 @@ function editGroupNameInline(gid, nameSpan) {
 function taskEl(t, proj) {
   const el = document.createElement("div");
   const completedLater = laterDoneInSeries(t);
-  const carried = !completedLater ? carriedForward(t) : null;
   const onToday = isToday(t.date);
   el.className = "task"
     + (t.status === "done" ? " done" : "")
     + (completedLater && !onToday ? " done-later" : "")
-    + (carried && !onToday ? " carried" : "")
     + (t.archived && !onToday ? " archived" : "");
   if (selectedTaskIds.has(t.id)) el.classList.add("selected");
   const inSeries = !!t.seriesId && state.tasks.some(x => x.id !== t.id && x.seriesId === t.seriesId);
   if (inSeries) el.classList.add("in-series");
   if (completedLater) el.title = `Completed on ${completedLater.date}`;
-  else if (carried) el.title = `Carried forward to ${carried.date}`;
   el.draggable = true;
   el.addEventListener("dragstart", (e) => {
     let ids;
@@ -2500,6 +2724,7 @@ function showTaskContextMenu(x, y) {
       <button class="ctx-item" data-act="group" ${canGroup ? "" : "disabled"}>Group ${canGroup ? `(${count})` : "(need 2+)"}</button>
       <button class="ctx-item" data-act="ungroup">Ungroup</button>
       <button class="ctx-item" data-act="move-to" ${otherProjects.length === 0 ? "disabled" : ""}>Move to project ▸</button>
+      <button class="ctx-item" data-act="move-date">Move to date… ▸</button>
       <div class="ctx-divider"></div>
       <button class="ctx-item" data-act="archive">${allArchived ? "Restore" : "Archive"} ${count > 1 ? `${count} tasks` : "task"}</button>
       <button class="ctx-item danger" data-act="delete">Delete ${count > 1 ? `${count} tasks` : "task"}</button>
@@ -2508,6 +2733,7 @@ function showTaskContextMenu(x, y) {
       b.onclick = () => {
         const act = b.dataset.act;
         if (act === "move-to") { renderMoveSubmenu(otherProjects); return; }
+        if (act === "move-date") { renderDateSubmenu(); return; }
         closeContextMenu();
         if (act === "group") groupSelectedTasks();
         else if (act === "ungroup") ungroupSelectedTasks();
@@ -2575,6 +2801,35 @@ function showTaskContextMenu(x, y) {
         }
       };
     });
+  };
+  const renderDateSubmenu = () => {
+    const ids = [...selectedTaskIds];
+    const selTasks = state.tasks.filter(t => ids.includes(t.id));
+    const cur = selTasks[0] ? selTasks[0].date : isoDate(new Date());
+    menu.innerHTML = `
+      <button class="ctx-item" data-act="back-to-main">‹ Back</button>
+      <div class="ctx-divider"></div>
+      <div class="ctx-label">Move to date</div>
+      <div style="padding:6px 12px;">
+        <input type="date" id="ctxDateInput" value="${cur}" style="font-size:13px; padding:5px 6px; border:1px solid #d2d2d7; border-radius:6px; font-family:inherit; width:100%;">
+      </div>
+      <button class="ctx-item" data-act="apply-date"><b>Move ${ids.length} task${ids.length > 1 ? "s" : ""}</b></button>
+    `;
+    menu.querySelector('[data-act="back-to-main"]').onclick = renderMain;
+    const apply = () => {
+      const val = menu.querySelector("#ctxDateInput").value;
+      if (!val) return;
+      closeContextMenu();
+      // Jump the view to the target month so the moved tasks stay visible.
+      state.activeMonth = val.slice(0, 7);
+      state.anchorDate = val;
+      moveTasks(ids, null, val, false);
+    };
+    menu.querySelector('[data-act="apply-date"]').onclick = apply;
+    const input = menu.querySelector("#ctxDateInput");
+    input.addEventListener("change", () => { if (input.value && input.value !== cur) apply(); });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } });
+    setTimeout(() => input.focus(), 0);
   };
   renderMain();
   menu.style.left = "0px";
@@ -4710,8 +4965,8 @@ function loadWeather() {
   const RB_THRESHOLD = 5;
   const SKIP_SELECTOR = ".task, button, input, textarea, select, a, label, " +
     ".modal, .modal-backdrop, .ctx-menu, .selection-bar, .month-picker-menu, " +
-    ".auth-backdrop, .project-label, .header-sync, .drag-handle, " +
-    ".row-resize-handle, .task-actions, .month-tab, .nav-arrow, .group-header";
+    ".auth-backdrop, .project-label, .custom-col-cell, .custom-col-header, .custom-fmt-toolbar, .header-sync, .drag-handle, " +
+    ".row-resize-handle, .col-resize-handle, .task-actions, .month-tab, .nav-arrow, .group-header";
   let start = null;
   let box = null;
   let baseSelection = null;
